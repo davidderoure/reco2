@@ -1,0 +1,154 @@
+syntax = "proto3";
+
+package recommender;
+
+import "google/protobuf/timestamp.proto";
+import "google/protobuf/empty.proto";
+option csharp_namespace = "OriginBackend.Api.Protos.Recommender";
+
+// -------------------------------------------------------
+// Service 1: Python acts as gRPC SERVER
+// C# client calls these methods on the Python server.
+// -------------------------------------------------------
+service RecommenderService {
+  // Fire-and-forget event notifications (C# → Python)
+  rpc UserAnsweredQuestion(UserAnsweredQuestionRequest) returns (google.protobuf.Empty);
+  rpc UserProvidedMood(UserProvidedMoodRequest) returns (google.protobuf.Empty);
+  rpc UserBookmarkedStory(UserBookmarkedStoryRequest) returns (google.protobuf.Empty);
+  rpc UserUnbookmarkedStory(UserBookmarkedStoryRequest) returns (google.protobuf.Empty);
+  rpc UserEngagementStoryStart(UserEngagementStartConfirmRequest) returns (google.protobuf.Empty);
+  rpc UserEngagementStoryConfirm(UserEngagementStartConfirmRequest) returns (google.protobuf.Empty);
+  rpc UserEngagementStoryProgress(UserEngagementProgressRequest) returns (google.protobuf.Empty);
+  rpc UserEngagementStoryStop(UserEngagementStopRequest) returns (google.protobuf.Empty);
+
+  // Request/response: returns 6 recommendations within 500ms
+  rpc GetRecommendations(GetRecommendationsRequest) returns (GetRecommendationsResponse);
+}
+
+// -------------------------------------------------------
+// Service 2: Python acts as gRPC CLIENT
+// Python calls these methods on the C# server.
+// -------------------------------------------------------
+service StoryService {
+  rpc GetStoryCatalogue(GetStoryCatalogueRequest) returns (GetStoryCatalogueResponse);
+  rpc SaveUserModel(SaveUserModelRequest) returns (google.protobuf.Empty);
+  rpc LoadUserModel(LoadUserModelRequest) returns (LoadUserModelResponse);
+}
+
+// -------------------------------------------------------
+// Engagement type constants (for recommender_type field)
+// -------------------------------------------------------
+enum EngagementType {
+  ENGAGEMENT_TYPE_UNSPECIFIED = 0;
+  ENGAGEMENT_TYPE_RECOMMENDATION_CONTENT_BASED = 1;  // From recommendations
+  ENGAGEMENT_TYPE_RECOMMENDATION_COLLABORATIVE = 2; // From recommendations
+  ENGAGEMENT_TYPE_RECOMMENDATION_TOPICAL = 3;
+  ENGAGEMENT_TYPE_RECOMMENDATION_WILDCARD = 4;
+  ENGAGEMENT_TYPE_RECENTS = 5;         // From Recents feature
+  ENGAGEMENT_TYPE_SAVED = 6;           // From Saved/Bookmarks feature
+  ENGAGEMENT_TYPE_SEARCH = 7;          // From Search feature
+}
+
+
+// -------------------------------------------------------
+// Event request messages (C# → Python)
+// -------------------------------------------------------
+
+message UserAnsweredQuestionRequest {
+  string user_id = 1;
+  string story_id = 2;
+  repeated int32 scores = 3; // Exactly 4 scores, range 1–9
+  google.protobuf.Timestamp timestamp = 4;
+}
+
+message UserProvidedMoodRequest {
+  string user_id = 1;
+  int32 mood_score = 2; // 1–9: current user mood
+  google.protobuf.Timestamp timestamp = 3;
+  string story_id = 4; // optional: set when mood is captured at end of a story
+}
+
+message UserBookmarkedStoryRequest {
+  string user_id = 1;
+  string story_id = 2;
+  google.protobuf.Timestamp timestamp = 3;
+}
+
+message UserEngagementStartConfirmRequest {
+  string user_id = 1;
+  string story_id = 2;
+  EngagementType engagement_type = 3;
+  google.protobuf.Timestamp timestamp = 4;
+}
+
+message UserEngagementProgressRequest {
+  string user_id = 1;
+  string story_id = 2;
+  google.protobuf.Timestamp timestamp = 3;
+  float progress_percentage = 4; // periodic update during a story, e.g. per-chapter for long/multi-chapter stories
+}
+
+message UserEngagementStopRequest {
+  string user_id = 1;
+  string story_id = 2;
+  EngagementType engagement_type = 3;
+  google.protobuf.Timestamp timestamp = 4;
+  float progress_percentage = 5;
+}
+
+// -------------------------------------------------------
+// Recommendation request/response
+// -------------------------------------------------------
+
+message GetRecommendationsRequest {
+  string user_id = 1;
+  google.protobuf.Timestamp timestamp = 2;
+}
+
+message RecommendationResult {
+  string story_id = 1;
+  int32 recommender_type = 2; // 1: Content-based, 2: Collaborative, 3: Topical, 4: Wildcard
+}
+
+message GetRecommendationsResponse {
+  repeated RecommendationResult recommendations = 1;
+}
+
+// -------------------------------------------------------
+// Story catalogue messages (Python → C#)
+// -------------------------------------------------------
+
+message GetStoryCatalogueRequest {
+  // Empty: always returns the full catalogue.
+}
+
+message StoryMessage {
+  string story_id = 1;
+  string title = 2;
+  repeated string tags = 4; // fine-grained content tags, e.g. "goldsmith"
+  string subtitle = 5; // Subtitle of the story
+  google.protobuf.Timestamp created_at = 6;
+  google.protobuf.Timestamp updated_at = 7;
+}
+
+message GetStoryCatalogueResponse {
+  repeated StoryMessage stories = 1;
+}
+
+// ---------------------------------------------
+// User model persistence messages (Python ↔ C#)
+// -------------------------------------------------------
+// UserModel is now internal to the Recommender service.
+// Only JSON strings are exchanged for persistence.
+
+message SaveUserModelRequest {
+  map<string, string> user_models = 1; // user_id → JSON string
+}
+
+message LoadUserModelRequest {
+  repeated string user_ids = 1; // empty = load all users
+}
+
+message LoadUserModelResponse {
+  map<string, string> user_models = 1; // user_id → JSON string
+}
