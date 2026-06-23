@@ -33,30 +33,37 @@ class WildcardStrategy(Strategy):
             self.rng.shuffle(pool)
             return [s.story_id for s in pool]
 
-        # Distance = inverse of affinity overlap: stories touching tags the
-        # user has shown little/no affinity for score higher (= more novel).
+        # "Novel" means genuinely unexplored, not "rated low". A tag the
+        # user has never encountered gets a high score (that's the actual
+        # serendipity target); a tag they've encountered and rated low is
+        # a real, explicit signal — not blind unexplored territory — and
+        # must not be inverted into a boost. Conflating the two would mean
+        # wildcard actively chases tags the user is avoiding (open
+        # question #2: lean cautious on avoided tags), which is the
+        # opposite of the decided default. See tests for the regression
+        # this guards against.
         def novelty(story) -> float:
             if not story.tags:
                 return 0.0
-            return 1.0 - (
-                sum(user.tag_affinity.get(tag, 0.0) for tag in story.tags) / len(story.tags)
-            )
+            values = [
+                1.0 if tag not in user.tag_affinity else user.tag_affinity[tag]
+                for tag in story.tags
+            ]
+            return sum(values) / len(values)
 
         weights = [max(novelty(s), 0.01) for s in pool]
-        ranked = sorted(zip(pool, weights), key=lambda t: t[1], reverse=True)
 
-        # Weighted shuffle rather than a strict ranking, so it's not
-        # deterministic run to run.
-        chosen = self.rng.choices(
-            [s.story_id for s, _ in ranked],
-            weights=[w for _, w in ranked],
-            k=len(ranked),
-        )
-        # De-dup while preserving the weighted order (choices() can repeat).
-        seen: set[str] = set()
-        ordered: list[str] = []
-        for sid in chosen:
-            if sid not in seen:
-                seen.add(sid)
-                ordered.append(sid)
-        return ordered
+        # Weighted random permutation (Efraimidis-Spirakis): each item gets
+        # a key = U^(1/weight) for U ~ Uniform(0,1), then sort descending.
+        # This is a real weighted shuffle without replacement, so a
+        # low-weight item is reliably (probabilistically) ranked low
+        # rather than landing anywhere by chance — sampling with
+        # replacement + dedup (the previous approach) doesn't have that
+        # property: a rare item, when it survives at all, can land at any
+        # rank. See test_wildcard.py for the regression this guards.
+        keyed = [
+            (self.rng.random() ** (1.0 / w), story.story_id)
+            for story, w in zip(pool, weights)
+        ]
+        keyed.sort(reverse=True)
+        return [story_id for _, story_id in keyed]

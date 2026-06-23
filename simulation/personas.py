@@ -1,0 +1,75 @@
+"""Named synthetic-user personas: hidden tag-preference profiles used to
+generate a simulated connectedness score, never seen by the recommender
+itself. Designed to be interpretable in journey transcripts, not just
+random noise.
+"""
+
+from __future__ import annotations
+
+import random
+from dataclasses import dataclass, field
+
+from recommender.models import Story
+from .synthetic_catalogue import THEME_TAGS
+
+
+@dataclass
+class Persona:
+    name: str
+    description: str
+    theme_weights: dict[str, float] = field(default_factory=dict)  # 0-1, default 0.3 (mild baseline)
+    format_weights: dict[str, float] = field(default_factory=dict)  # 0-1, default 0.5 (no preference)
+
+    def affinity_for(self, tag: str, themes: set[str], formats: set[str]) -> float:
+        if tag in themes:
+            return self.theme_weights.get(tag, 0.3)
+        if tag in formats:
+            return self.format_weights.get(tag, 0.5)
+        return 0.3
+
+
+PERSONAS: list[Persona] = [
+    Persona(
+        name="narrow_preference",
+        description="Strongly connects with stories about feeling unheard/unsupported; mild on everything else.",
+        theme_weights={"Not Heard": 0.95, "Not Supported": 0.85},
+    ),
+    Persona(
+        name="broad_mild_preference",
+        description="Mild positive connection across most themes, no sharp standout.",
+        theme_weights={tag: 0.55 for tag in THEME_TAGS},
+    ),
+    Persona(
+        name="tag_avoider",
+        description="Consistently low connectedness with stories about being judged — plausibly triggering content; otherwise average.",
+        theme_weights={"Judged": 0.1},
+    ),
+    Persona(
+        name="format_audio_lover",
+        description="Connection driven mostly by format (prefers Audio) rather than theme.",
+        theme_weights={tag: 0.4 for tag in THEME_TAGS},
+        format_weights={"Audio": 0.9, "Written": 0.3, "Visual": 0.3, "Video": 0.3},
+    ),
+]
+
+
+def simulated_connectedness(story: Story, persona: Persona, rng: random.Random) -> int:
+    """Synthetic connectedness score (1-9) for a story given a hidden persona."""
+    themes = set(THEME_TAGS)
+    formats = set(story.tags) - themes
+    relevant_themes = [t for t in story.tags if t in themes]
+
+    if not relevant_themes:
+        theme_component = 0.3
+    else:
+        theme_component = sum(persona.affinity_for(t, themes, formats) for t in relevant_themes) / len(relevant_themes)
+
+    format_component = 0.5
+    for tag in story.tags:
+        if tag in persona.format_weights:
+            format_component = persona.affinity_for(tag, themes, formats)
+
+    # Theme dominates; format is a secondary modifier.
+    base = (0.8 * theme_component + 0.2 * format_component) * 9
+    noisy = base + rng.gauss(0, 0.8)
+    return max(1, min(9, round(noisy)))
