@@ -176,7 +176,12 @@ def build_engine():
 def serve():
     engine, story_client = build_engine()
 
-    server = grpc.server(futures.ThreadPoolExecutor(max_workers=10))
+    # gzip compression to match StoryClient's channel — see story_client.py
+    # for rationale. Negligible benefit for the small RecommenderService
+    # responses today, but keeps both directions consistent.
+    server = grpc.server(
+        futures.ThreadPoolExecutor(max_workers=10), compression=grpc.Compression.Gzip
+    )
     recommender_pb2_grpc.add_RecommenderServiceServicer_to_server(
         RecommenderServicer(engine, story_client), server
     )

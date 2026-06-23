@@ -25,7 +25,13 @@ STORY_SERVICE_ADDR = os.getenv("STORY_SERVICE_ADDR", "story-service:50052")
 class StoryClient:
     def __init__(self, addr: str | None = None) -> None:
         self.addr = addr or STORY_SERVICE_ADDR
-        self._channel = grpc.insecure_channel(self.addr)
+        # gzip compression on the channel: user-model JSON blobs are highly
+        # repetitive (story IDs, field names), so this buys a large amount
+        # of headroom against gRPC's 4MB default message size limit —
+        # measured ~5-20x reduction depending on how much history a user
+        # has. Needs the C# side to also support/accept gzip for this to
+        # take effect; falls back to uncompressed if it doesn't.
+        self._channel = grpc.insecure_channel(self.addr, compression=grpc.Compression.Gzip)
         self._stub = recommender_pb2_grpc.StoryServiceStub(self._channel)
 
     def fetch_catalogue(self) -> Catalogue:

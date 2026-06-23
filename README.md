@@ -99,3 +99,14 @@ meetings and are implemented with the rationale in code comments
   comment says "display name of the story's author," which conflicts with
   the field name. Not used by any logic here, but don't build on it
   without checking with the back-end dev first.
+- **`LoadUserModel(user_ids=[])` ("load all") has no pagination** — at
+  trial scale this risks exceeding gRPC's 4MB default message size limit
+  (measured: ~18 stories read per user, on average, across 1500 users is
+  enough to cross it). Mitigated for now with gzip compression on the
+  channel (`StoryClient`/`server.py` both set `compression=grpc.Compression.Gzip`
+  — measured 5-20x reduction on real user-model JSON), which gives a lot
+  of headroom, but doesn't remove the ceiling. If the trial or catalogue
+  grows further, the proper fix is a proto change — e.g. a server-streaming
+  `LoadUserModel` response instead of one bulk message — which needs
+  coordinating with the back-end dev since it changes the `StoryService`
+  contract they implement.
