@@ -36,10 +36,15 @@ STORY_SERVICE_ADDR=story-service:50052 GRPC_SERVER_PORT=50051 python3 server.py
 The catalogue (stories and their tags) is re-fetched periodically in the
 background, not just at startup — tags can change during the trial
 (including user-suggested free-text tags), so a long-running process
-needs to pick that up without a restart. Interval defaults to 5 minutes;
-override with `CATALOGUE_REFRESH_SECONDS`. A failed refresh (e.g.
-transient `StoryService` outage) is logged and retried next interval —
-it doesn't crash the server or wipe the existing catalogue.
+needs to pick that up without a restart. Interval defaults to 5 minutes
+(`CATALOGUE_REFRESH_SECONDS`), which is deliberately frequent for
+**testing** (fast feedback when stories/tags change). Expect to turn
+this down once the trial is live and the catalogue is more stable —
+e.g. hourly (`CATALOGUE_REFRESH_SECONDS=3600`) — to reduce load on
+`StoryService`; no code change needed, just the env var. A failed
+refresh (e.g. transient `StoryService` outage) is logged and retried
+next interval — it doesn't crash the server or wipe the existing
+catalogue.
 
 **Offline / standalone mode** (no C# backend available yet) — uses an
 in-memory `FakeStoryClient` seeded with 12 mock stories (no tags, matching
