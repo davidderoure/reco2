@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import os
 import sys
+import threading
 import time
 from concurrent import futures
 
@@ -24,6 +25,15 @@ from recommender.engine import RecommenderEngine
 from story_client import FakeStoryClient, StoryClient
 
 GRPC_SERVER_PORT = os.getenv("GRPC_SERVER_PORT", "50051")
+
+# Tags (and the catalogue generally) can change during the trial — new
+# stories, new tags on existing stories, and now also user-suggested
+# free-text tags. The catalogue was previously only fetched once at
+# startup, so a long-running service would silently go stale. Refresh on
+# this interval instead. 5 minutes is a starting guess, not a measured
+# value — tags/stories don't need to propagate in real time, just
+# regularly enough that "stale for the life of the process" isn't a risk.
+CATALOGUE_REFRESH_SECONDS = int(os.getenv("CATALOGUE_REFRESH_SECONDS", "300"))
 
 
 class RecommenderServicer(recommender_pb2_grpc.RecommenderServiceServicer):
@@ -173,6 +183,19 @@ def build_engine():
     return engine, story_client
 
 
+def refresh_catalogue_loop(engine: RecommenderEngine, story_client, interval_seconds: int) -> None:
+    while True:
+        time.sleep(interval_seconds)
+        try:
+            fresh = story_client.fetch_catalogue()
+            engine.catalogue.load(fresh.all_stories())
+            print(f"Refreshed catalogue: {len(engine.catalogue)} stories")
+        except Exception as exc:  # noqa: BLE001 - a transient StoryService
+            # outage must not crash the whole recommender; just try again
+            # next interval and keep serving with the catalogue we have.
+            print(f"Catalogue refresh failed, will retry: {exc}")
+
+
 def serve():
     engine, story_client = build_engine()
 
@@ -189,6 +212,13 @@ def serve():
     server.add_insecure_port(f"[::]:{GRPC_SERVER_PORT}")
     print(f"ORIGIN Recommender Service started on port {GRPC_SERVER_PORT}...")
     server.start()
+
+    refresh_thread = threading.Thread(
+        target=refresh_catalogue_loop,
+        args=(engine, story_client, CATALOGUE_REFRESH_SECONDS),
+        daemon=True,
+    )
+    refresh_thread.start()
 
     try:
         while True:
