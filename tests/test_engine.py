@@ -154,3 +154,27 @@ def test_unbookmark_removes_tracked_bookmark():
     engine.record_bookmark(user_id, "s0", timestamp=time.time())
     engine.record_unbookmark(user_id, "s0", timestamp=time.time())
     assert engine.population[user_id].bookmarked_story_ids == {}
+
+
+def test_topical_prioritizes_stories_new_since_users_last_visit():
+    # A story added to the catalogue after this user's last visit should
+    # rank ahead of older stories in the topical slot, even if it's not
+    # globally the newest (some other user's "old" story could be newer
+    # in absolute terms but already known to everyone).
+    catalogue = make_catalogue(n=10)
+    engine = RecommenderEngine(catalogue)
+    user_id = "u1"
+
+    t0 = 1000.0
+    engine.get_recommendations(user_id, timestamp=t0)  # first visit
+
+    # A story added well after the user's last visit, but with a lower
+    # created_at than catalogue.newest() would naturally put first if we
+    # only looked at "newest overall" (s9, created_at=9).
+    engine.catalogue.upsert(
+        Story(story_id="brand-new", title="Brand new", tags=["a"], created_at=t0 + 500)
+    )
+
+    recs = engine.get_recommendations(user_id, timestamp=t0 + 1000)
+    topical_picks = [sid for sid, rec_type in recs if rec_type == 3]
+    assert "brand-new" in topical_picks

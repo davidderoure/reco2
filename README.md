@@ -86,6 +86,12 @@ meetings and are implemented with the rationale in code comments
 8. **Abandoned engagement**: a story opened but closed without answering
    the question doesn't count for anything (doesn't mark the story as
    "seen", doesn't affect affinity).
+9. **"New" stories during the trial**: the `topical` slot prioritizes
+   stories added since *this user's own* last `GetRecommendations` call
+   (`UserModel.last_recommendation_request_at`), not just globally
+   newest — a story can be new for one user and old news for another.
+   Falls back to global newest-first once nothing is new since their
+   last visit.
 
 ## Known limitations / things to check during review
 

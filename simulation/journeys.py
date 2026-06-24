@@ -26,11 +26,11 @@ N_ROUNDS = 15
 def run_journey(engine: RecommenderEngine, user_id: str, persona, rng: random.Random, now: float, n_rounds: int) -> list[dict]:
     rounds = []
     for round_idx in range(n_rounds):
-        recs = engine.get_recommendations(user_id)
+        timestamp = now + round_idx * 86400
+        recs = engine.get_recommendations(user_id, timestamp=timestamp)
         opened_story_id, opened_type = recs[0]
         story = engine.catalogue.get(opened_story_id)
         score = simulated_connectedness(story, persona, rng)
-        timestamp = now + round_idx * 86400
 
         engine.record_answered_question(user_id, opened_story_id, [score, 5, 5, 5], timestamp=timestamp)
         engine.record_engagement_stop(user_id, opened_story_id, progress_percentage=100.0, timestamp=timestamp)

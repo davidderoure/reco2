@@ -64,6 +64,11 @@ class UserModel:
     last_recommendations: list[str] = field(default_factory=list)  # slot order
     recommended_story_ids: set[str] = field(default_factory=set)  # ever shown
     last_updated: float = 0.0
+    # Timestamp of this user's previous GetRecommendations call (0.0 if
+    # never). Used to identify stories that are new *for this user*
+    # specifically (added since they last visited), not just new to the
+    # catalogue overall — see TopicalStrategy.
+    last_recommendation_request_at: float = 0.0
 
     def to_json(self) -> str:
         return json.dumps({
@@ -82,6 +87,7 @@ class UserModel:
             "last_recommendations": self.last_recommendations,
             "recommended_story_ids": sorted(self.recommended_story_ids),
             "last_updated": self.last_updated,
+            "last_recommendation_request_at": self.last_recommendation_request_at,
         })
 
     @classmethod
@@ -99,4 +105,5 @@ class UserModel:
             last_recommendations=data.get("last_recommendations", []),
             recommended_story_ids=set(data.get("recommended_story_ids", [])),
             last_updated=data.get("last_updated", 0.0),
+            last_recommendation_request_at=data.get("last_recommendation_request_at", 0.0),
         )

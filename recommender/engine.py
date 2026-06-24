@@ -218,8 +218,9 @@ class RecommenderEngine:
 
     # -- recommendations ------------------------------------------------
 
-    def get_recommendations(self, user_id: str) -> list[tuple[str, int]]:
+    def get_recommendations(self, user_id: str, timestamp: float | None = None) -> list[tuple[str, int]]:
         """Returns up to 6 (story_id, recommender_type) pairs."""
+        timestamp = timestamp if timestamp is not None else time.time()
         user = self.get_or_create_user(user_id)
 
         # "Seen" = actually answered the (compulsory) connectedness
@@ -255,6 +256,11 @@ class RecommenderEngine:
         for story_id, _ in results:
             user.recommended_story_ids.add(story_id)
         user.last_recommendations = [sid for sid, _ in results]
+
+        # Advance the "new for this user" marker only after generating
+        # this batch, so TopicalStrategy compared against the *previous*
+        # visit's timestamp, not this one.
+        user.last_recommendation_request_at = timestamp
 
         return results
 

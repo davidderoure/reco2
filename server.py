@@ -123,7 +123,7 @@ class RecommenderServicer(recommender_pb2_grpc.RecommenderServiceServicer):
         return empty_pb2.Empty()
 
     def GetRecommendations(self, request, context):
-        recs = self.engine.get_recommendations(request.user_id)
+        recs = self.engine.get_recommendations(request.user_id, timestamp=_to_epoch(request.timestamp))
         recommendations = [
             recommender_pb2.RecommendationResult(story_id=story_id, recommender_type=rec_type)
             for story_id, rec_type in recs

@@ -86,7 +86,7 @@ def run_round(engine: RecommenderEngine, true_prefs: dict, rng: random.Random, n
 
     for user_id, true_pref in true_prefs.items():
         t0 = time.perf_counter()
-        recs = engine.get_recommendations(user_id)
+        recs = engine.get_recommendations(user_id, timestamp=now)
         timings.append(time.perf_counter() - t0)
 
         assert len(recs) == 6, f"expected 6 recommendations, got {len(recs)}"
