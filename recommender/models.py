@@ -50,6 +50,10 @@ class StoryHistoryEntry:
     # (rather than discarded) so the capability to use them later doesn't
     # require a model change.
     secondary_scores: list[int] = field(default_factory=list)
+    # True if the user explicitly aborted this story (UserEngagementStoryAbort).
+    # Distinct from simply stopping early — intended for avoidance-detection logic
+    # once the count/recency parameters are determined.
+    aborted: bool = False
 
 
 @dataclass
@@ -80,6 +84,7 @@ class UserModel:
                     "viewed_pct": e.viewed_pct,
                     "timestamp": e.timestamp,
                     "secondary_scores": e.secondary_scores,
+                    "aborted": e.aborted,
                 }
                 for sid, e in self.story_history.items()
             },

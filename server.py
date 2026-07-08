@@ -122,6 +122,18 @@ class RecommenderServicer(recommender_pb2_grpc.RecommenderServiceServicer):
         self._persist(request.user_id)
         return empty_pb2.Empty()
 
+    def UserEngagementStoryAbort(self, request, context):
+        engagement_source = _engagement_type_name(request.engagement_type)
+        print(f"[EVENT] User {request.user_id} aborted story {request.story_id} "
+              f"(source: {engagement_source})")
+        self.engine.record_abort(
+            request.user_id,
+            request.story_id,
+            timestamp=_to_epoch(request.timestamp),
+        )
+        self._persist(request.user_id)
+        return empty_pb2.Empty()
+
     def GetRecommendations(self, request, context):
         recs = self.engine.get_recommendations(request.user_id, timestamp=_to_epoch(request.timestamp))
         recommendations = [

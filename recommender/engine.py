@@ -139,13 +139,35 @@ class RecommenderEngine:
         progress_percentage: float,
         timestamp: float | None = None,
     ) -> None:
-        # Periodic mid-story update (e.g. per-chapter, for long/multi-chapter
-        # stories). Not used by any logic yet — per open question #8, an
-        # engagement that never reaches a finish/scored state doesn't count
-        # for anything — but the handler exists so the interface is fully
-        # covered. Revisit if multi-chapter completion ever needs tracking
-        # independent of the final UserEngagementStoryStop.
-        self.get_or_create_user(user_id)
+        # Fired periodically: per chapter-open for multi-chapter stories,
+        # per % played for audio/video. Updates viewed_pct so that if a
+        # subsequent stop/abort event is lost we still have the last known
+        # position. Does not trigger tag-affinity recompute or count as
+        # "seen" — open question #8: only a scored answer counts for that.
+        timestamp = timestamp if timestamp is not None else time.time()
+        user = self.get_or_create_user(user_id)
+        entry = user.story_history.setdefault(story_id, StoryHistoryEntry())
+        entry.viewed_pct = progress_percentage
+        entry.timestamp = timestamp
+
+    def record_abort(
+        self,
+        user_id: str,
+        story_id: str,
+        timestamp: float | None = None,
+    ) -> None:
+        # UserEngagementStoryAbort ("get me out of here"). Records that the
+        # user explicitly exited this story, distinct from a normal early stop.
+        # Avoidance logic (how many aborts on similar content triggers
+        # de-prioritisation, with what recency weighting) is not yet
+        # implemented — parameters TBD. The flag is captured here so that
+        # when that logic is added no historical data is lost.
+        timestamp = timestamp if timestamp is not None else time.time()
+        user = self.get_or_create_user(user_id)
+        entry = user.story_history.setdefault(story_id, StoryHistoryEntry())
+        entry.aborted = True
+        entry.timestamp = timestamp
+        user.last_updated = timestamp
 
     def record_bookmark(self, user_id: str, story_id: str, timestamp: float | None = None) -> None:
         # Open question #7: a bookmark is a preference signal even if the
