@@ -33,7 +33,7 @@ GRPC_SERVER_PORT = os.getenv("GRPC_SERVER_PORT", "50051")
 # this interval instead. 5 minutes is a starting guess, not a measured
 # value — tags/stories don't need to propagate in real time, just
 # regularly enough that "stale for the life of the process" isn't a risk.
-CATALOGUE_REFRESH_SECONDS = int(os.getenv("CATALOGUE_REFRESH_SECONDS", "300"))
+CATALOGUE_REFRESH_SECONDS = int(os.getenv("CATALOGUE_REFRESH_SECONDS", "3600"))
 
 
 class RecommenderServicer(recommender_pb2_grpc.RecommenderServiceServicer):
