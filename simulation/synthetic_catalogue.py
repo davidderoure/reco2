@@ -1,9 +1,6 @@
-"""Synthetic catalogue generation using the preliminary ORIGIN tag
-vocabulary (provided 2026-06-22): one format tag per story (story media
+"""Synthetic catalogue generation using the definitive initial ORIGIN tag
+vocabulary (provided 2026-07-08): one format tag per story (story media
 type) plus one or more theme tags (what the story is about).
-
-This is a placeholder vocabulary for testing logic, not the final
-trial tag set — regenerate once the real list is confirmed.
 """
 
 from __future__ import annotations
@@ -17,11 +14,52 @@ from recommender.models import Story
 FORMAT_TAGS = ["Written", "Audio", "Visual", "Video"]
 
 THEME_TAGS = [
-    "Not Heard",
-    "Lonely",
+    "Literature",
+    "Activism",
+    "Performing Arts",
+    "Friendship",
+    "Heritage",
+    "Community",
+    "WWII",
+    "Academia",
+    "Animals",
+    "Mental Health",
+    "Archaeology",
+    "Family",
+    "Nature",
+    "Medicine",
+    "Gender",
+    "Migration",
+    "Black Experience",
+    "Industry",
+    "Music",
+    "LGBTQ+ Experience",
+    "Adventure",
+    "Sports",
+    "Refugee Experience",
+    "Women's Suffrage",
+    "Craftsmanship",
+    "Spirituality",
+    "Poetry",
+    "South Asian Experience",
+    "SE Asian Experience",
+    "Latino Experience",
+    "Visual Arts",
+    "Experience of Disability",
+    "Science",
+    "Religion",
+    "WWI",
+    "East Asian Experience",
+    "African Experience",
+    "Fashion",
+    "Technology",
+    "Working Class Experience",
+    "Childhood",
+    "Feeling Unheard",
+    "Feeling Lonely",
     "Missed Chances",
-    "Not Supported",
-    "Judged",
+    "Feeling Unsupported",
+    "Being Judged",
     "Hiding Self",
 ]
 

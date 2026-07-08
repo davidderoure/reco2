@@ -25,11 +25,7 @@ from recommender.engine import RecommenderEngine
 from recommender.models import UserModel
 from recommender.models import Story
 
-TAG_VOCAB = [
-    "goldsmith", "folklore", "grief", "humour", "adventure", "family",
-    "identity", "nature", "music", "friendship", "loss", "resilience",
-    "migration", "faith", "sport", "art",
-]
+from simulation.synthetic_catalogue import ALL_TAGS as TAG_VOCAB
 
 
 def make_catalogue(n_stories: int, seed: int, now: float) -> Catalogue:

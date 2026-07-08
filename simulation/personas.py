@@ -32,7 +32,7 @@ PERSONAS: list[Persona] = [
     Persona(
         name="narrow_preference",
         description="Strongly connects with stories about feeling unheard/unsupported; mild on everything else.",
-        theme_weights={"Not Heard": 0.95, "Not Supported": 0.85},
+        theme_weights={"Feeling Unheard": 0.95, "Feeling Unsupported": 0.85},
     ),
     Persona(
         name="broad_mild_preference",
@@ -42,13 +42,41 @@ PERSONAS: list[Persona] = [
     Persona(
         name="tag_avoider",
         description="Consistently low connectedness with stories about being judged — plausibly triggering content; otherwise average.",
-        theme_weights={"Judged": 0.1},
+        theme_weights={"Being Judged": 0.1},
     ),
     Persona(
         name="format_audio_lover",
         description="Connection driven mostly by format (prefers Audio) rather than theme.",
         theme_weights={tag: 0.4 for tag in THEME_TAGS},
         format_weights={"Audio": 0.9, "Written": 0.3, "Visual": 0.3, "Video": 0.3},
+    ),
+    Persona(
+        name="identity_explorer",
+        description="High affinity for identity/experience themes (LGBTQ+, gender, migration, heritage); low for conflict/war.",
+        theme_weights={
+            "LGBTQ+ Experience": 0.9,
+            "Gender": 0.85,
+            "Migration": 0.8,
+            "Heritage": 0.75,
+            "Hiding Self": 0.8,
+            "Community": 0.7,
+            "WWI": 0.1,
+            "WWII": 0.1,
+        },
+    ),
+    Persona(
+        name="community_and_arts",
+        description="Drawn to community, activism, and creative arts themes across all formats.",
+        theme_weights={
+            "Community": 0.9,
+            "Activism": 0.85,
+            "Performing Arts": 0.85,
+            "Visual Arts": 0.8,
+            "Music": 0.8,
+            "Poetry": 0.75,
+            "Literature": 0.7,
+            "Friendship": 0.7,
+        },
     ),
 ]
 
