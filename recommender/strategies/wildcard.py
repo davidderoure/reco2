@@ -6,6 +6,7 @@ random noise.
 from __future__ import annotations
 
 import random
+import threading
 
 from ..catalogue import Catalogue
 from ..models import WILDCARD, UserModel
@@ -17,6 +18,7 @@ class WildcardStrategy(Strategy):
 
     def __init__(self, rng: random.Random | None = None) -> None:
         self.rng = rng or random.Random()
+        self._rng_lock = threading.Lock()
 
     def candidates(
         self,
@@ -30,7 +32,8 @@ class WildcardStrategy(Strategy):
             return []
 
         if not user.tag_affinity:
-            self.rng.shuffle(pool)
+            with self._rng_lock:
+                self.rng.shuffle(pool)
             return [s.story_id for s in pool]
 
         # "Novel" means genuinely unexplored, not "rated low". A tag the
@@ -61,9 +64,10 @@ class WildcardStrategy(Strategy):
         # replacement + dedup (the previous approach) doesn't have that
         # property: a rare item, when it survives at all, can land at any
         # rank. See test_wildcard.py for the regression this guards.
-        keyed = [
-            (self.rng.random() ** (1.0 / w), story.story_id)
-            for story, w in zip(pool, weights)
-        ]
+        with self._rng_lock:
+            keyed = [
+                (self.rng.random() ** (1.0 / w), story.story_id)
+                for story, w in zip(pool, weights)
+            ]
         keyed.sort(reverse=True)
         return [story_id for _, story_id in keyed]

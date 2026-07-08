@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import math
 import random
+import threading
 import time
 
 from .catalogue import Catalogue
@@ -78,7 +79,9 @@ class RecommenderEngine:
     ) -> None:
         self.catalogue = catalogue
         self.population: dict[str, UserModel] = {}
+        self._population_lock = threading.Lock()
         self.rng = rng or random.Random()
+        self._rng_lock = threading.Lock()
         self.strategies = {
             CONTENT_BASED: ContentBasedStrategy(),
             COLLABORATIVE: CollaborativeStrategy(),
@@ -89,12 +92,14 @@ class RecommenderEngine:
     # -- population / persistence -----------------------------------------
 
     def load_population(self, users: list[UserModel]) -> None:
-        self.population = {u.user_id: u for u in users}
+        with self._population_lock:
+            self.population = {u.user_id: u for u in users}
 
     def get_or_create_user(self, user_id: str) -> UserModel:
-        if user_id not in self.population:
-            self.population[user_id] = UserModel(user_id=user_id)
-        return self.population[user_id]
+        with self._population_lock:
+            if user_id not in self.population:
+                self.population[user_id] = UserModel(user_id=user_id)
+            return self.population[user_id]
 
     # -- event handlers -----------------------------------------------------
 
@@ -438,7 +443,9 @@ class RecommenderEngine:
         cohort_best = self._cohort_average_ranking(excluded | chosen)
         pool = cohort_best[:COLD_START_POPULAR_POOL_SIZE]
         sample_size = min(4, len(pool))
-        for story_id in self.rng.sample(pool, k=sample_size):
+        with self._rng_lock:
+            sample = self.rng.sample(pool, k=sample_size)
+        for story_id in sample:
             results.append((story_id, COLLABORATIVE))
             chosen.add(story_id)
 
@@ -496,7 +503,8 @@ class RecommenderEngine:
             # catalogue stories, not catalogue order, so different users
             # (and different calls) aren't all handed the same padding.
             remaining_pool = self.catalogue.all_ids()
-            self.rng.shuffle(remaining_pool)
+            with self._rng_lock:
+                self.rng.shuffle(remaining_pool)
             for story_id in remaining_pool:
                 if needed == 0:
                     break
