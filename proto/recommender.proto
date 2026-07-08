@@ -21,7 +21,6 @@ service RecommenderService {
   rpc UserEngagementStoryProgress(UserEngagementProgressRequest) returns (google.protobuf.Empty);
   rpc UserEngagementStoryStop(UserEngagementStopRequest) returns (google.protobuf.Empty);
   rpc UserEngagementStoryAbort(UserEngagementAbortRequest) returns (google.protobuf.Empty);
-
   // Request/response: returns 6 recommendations within 500ms
   rpc GetRecommendations(GetRecommendationsRequest) returns (GetRecommendationsResponse);
 }
@@ -86,14 +85,7 @@ message UserEngagementProgressRequest {
   string user_id = 1;
   string story_id = 2;
   google.protobuf.Timestamp timestamp = 3;
-  float progress_percentage = 4; // chapter open % for multi-chapter stories; % played for audio/video
-}
-
-message UserEngagementAbortRequest {
-  string user_id = 1;
-  string story_id = 2;
-  EngagementType engagement_type = 3;
-  google.protobuf.Timestamp timestamp = 4;
+  float progress_percentage = 4;
 }
 
 message UserEngagementStopRequest {
@@ -102,6 +94,13 @@ message UserEngagementStopRequest {
   EngagementType engagement_type = 3;
   google.protobuf.Timestamp timestamp = 4;
   float progress_percentage = 5;
+}
+
+message UserEngagementAbortRequest {
+  string user_id = 1;
+  string story_id = 2;
+  EngagementType engagement_type = 3;
+  google.protobuf.Timestamp timestamp = 4;
 }
 
 // -------------------------------------------------------
