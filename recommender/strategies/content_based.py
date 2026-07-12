@@ -17,7 +17,7 @@ from ..catalogue import Catalogue
 from ..models import CONTENT_BASED, UserModel
 from .base import Strategy
 
-POOL_SIZE = 15
+POOL_SIZE = 6
 
 
 class ContentBasedStrategy(Strategy):
