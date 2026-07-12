@@ -59,18 +59,24 @@ there's no real persistence, just enough to exercise the RPCs.
 ## Testing
 
 ```bash
-pytest                          # unit + concurrency tests
-python3 -m simulation.simulate  # synthetic population, response-time percentiles, recommender-vs-random effectiveness
-python3 -m simulation.journeys  # per-user round-by-round transcripts → simulation/journeys_output.md
-python3 -m simulation.journeys --noise  # same with 15% engagement interruption noise
-python3 -m simulation.report    # HTML report for sharing → simulation/journeys_report.html
+pytest                              # unit + integration + concurrency + restart tests (38 tests)
+python3 -m simulation.simulate      # synthetic population, response-time percentiles, recommender-vs-random effectiveness
+python3 -m simulation.journeys      # per-user round-by-round transcripts → simulation/journeys_output.md
+python3 -m simulation.journeys --noise       # same with 15% engagement interruption noise
+python3 -m simulation.journeys --robustness  # extreme-behaviour personas → simulation/journeys_robustness.md
+python3 -m simulation.report                 # HTML report for sharing → simulation/journeys_report.html
 python3 -m simulation.report --noise
+python3 -m simulation.report --robustness    # → simulation/journeys_report_robustness.html
 ```
 
 The simulation uses the definitive ORIGIN tag vocabulary (4 format + 47 theme
-tags) and 6 named personas. It is a sanity check against synthetic ground
-truth — useful for catching logic bugs and checking response-time budgets, not
-a substitute for testing against real trial data.
+tags) and 6 named personas. Connectedness trends upward across rounds for 8/12
+synthetic users in the clean baseline — confirmed after each code drop.
+
+The `--robustness` flag runs 5 extreme-behaviour personas (always-first,
+always-random, fixed scores 1/5/9) to verify the recommender behaves sensibly
+under degenerate input. It is a sanity check against synthetic ground truth —
+not a substitute for testing against real trial data.
 
 ## Design decisions
 
@@ -106,6 +112,12 @@ meetings and are implemented with the rationale in code comments
    stories added since *this user's own* last `GetRecommendations` call
    (`UserModel.last_recommendation_request_at`), not just globally
    newest — a story can be new for one user and old news for another.
+10. **Content-based diversity**: candidates are scored by tag-affinity match
+    and the top `POOL_SIZE` (N=6) are shuffled uniformly before the engine
+    picks from them. This prevents a tight positive-feedback loop (high score
+    → tag reinforced → same story always first) while keeping recommendations
+    preference-led. Pool size is the tuning knob: smaller = faster
+    personalisation, larger = more variety.
 
 ## Pending / coming in a future release
 
@@ -129,11 +141,13 @@ meetings and are implemented with the rationale in code comments
   the story's author." Not used by any logic here.
 - **`LoadUserModel(user_ids=[])` ("load all") has no pagination** — at
   trial scale this risks exceeding gRPC's 4MB default message size limit.
-  Mitigated with gzip compression on the channel (`StoryClient`/`server.py`
-  both set `compression=grpc.Compression.Gzip` — 5-20x reduction on
-  realistic user-model JSON). If the trial or catalogue grows further,
-  the proper fix is a proto change (server-streaming `LoadUserModel`)
-  coordinated with the back-end dev.
+  Measured at ~11 KB/user after 60 rounds of engagement; projected 1,500
+  users = ~16 MB raw, ~200–800 KB gzipped. Mitigated with gzip compression
+  on the channel (`StoryClient`/`server.py` both set
+  `compression=grpc.Compression.Gzip`). If the trial grows further, the
+  proper fix is a proto change (server-streaming `LoadUserModel`) coordinated
+  with the back-end dev. A budget regression test is in
+  `tests/test_concurrent.py::test_user_model_json_size_within_grpc_budget`.
 - **Persistence is synchronous and per-event** (`server.py`'s `_persist`)
   — simple and correct, but chatty; worth revisiting once real traffic
   volume is known.
