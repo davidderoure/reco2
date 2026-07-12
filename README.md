@@ -89,29 +89,32 @@ meetings and are implemented with the rationale in code comments
 5. **Multi-question signal**: only `scores[0]` (compulsory) drives logic;
    `scores[1:4]` are stored but unused, ready for future use.
 6. **Repeats**: allowed, but every batch of 6 must include at least 2
-   stories never recommended to that user before.
+   stories never recommended to that user before. Stories from the last
+   `RECENT_BATCHES_TO_EXCLUDE` (N=2) batches are excluded from fresh
+   recommendations; the window relaxes automatically when the catalogue
+   is too small to honour it.
 7. **Bookmarks**: do not affect tag-affinity (capability retained but
    disabled — see `BOOKMARKS_AFFECT_AFFINITY` in `engine.py`).
 8. **Abandoned engagement**: a story opened but closed without answering
-   the question doesn't count for anything (doesn't mark the story as
-   "seen", doesn't affect affinity). `UserEngagementStoryProgress` events
-   update the last-known position (`viewed_pct`) in case a stop/abort
-   event is lost.
+   the question doesn't count as "seen" and doesn't affect affinity.
+   `UserEngagementStoryProgress` updates `viewed_pct` in case a stop/abort
+   event is lost. If the user returns without having answered any
+   connectedness question, the previous batch is preserved (minus any story
+   they started but didn't score) rather than reshuffled — the app holds
+   their place across interruptions.
 9. **"New" stories during the trial**: the `topical` slot prioritizes
    stories added since *this user's own* last `GetRecommendations` call
    (`UserModel.last_recommendation_request_at`), not just globally
    newest — a story can be new for one user and old news for another.
 
-## Pending / coming in next release
+## Pending / coming in a future release
 
-- **Repeat recommendation window**: last-N-batches exclusion to prevent
-  stories cycling back too quickly across successive calls.
-- **Batch preservation on early exit**: if the user's last engagement
-  produced no connectedness answer, return the previous batch rather than
-  reshuffling.
 - **Tag avoidance / "get me out of here"**: `UserEngagementStoryAbort`
   is wired and the `aborted` flag is captured on the user model, but the
   avoidance logic is pending count/recency parameter decisions.
+- **Pull-to-refresh**: a `force_refresh` flag on `GetRecommendationsRequest`
+  would bypass batch preservation; requires a proto change coordinated with
+  the back-end dev.
 
 ## Known limitations / things to check during review
 
