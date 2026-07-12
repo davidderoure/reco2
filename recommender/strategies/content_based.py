@@ -1,16 +1,31 @@
 """Content-based: score unseen stories by similarity to the user's own
 tag affinities, built from their connectedness history.
+
+To break the positive-feedback loop where the same top-scored story would
+always be returned first, candidates() returns the top POOL_SIZE stories
+in a uniformly shuffled order rather than strict rank order. The engine
+picks the first N it needs, so the effective recommendation is a uniform
+random draw from the top pool — preference-informed but not deterministic.
 """
 
 from __future__ import annotations
+
+import random
+import threading
 
 from ..catalogue import Catalogue
 from ..models import CONTENT_BASED, UserModel
 from .base import Strategy
 
+POOL_SIZE = 15
+
 
 class ContentBasedStrategy(Strategy):
     code = CONTENT_BASED
+
+    def __init__(self, rng: random.Random | None = None) -> None:
+        self.rng = rng or random.Random()
+        self._rng_lock = threading.Lock()
 
     def candidates(
         self,
@@ -33,4 +48,8 @@ class ContentBasedStrategy(Strategy):
                 scored.append((score, story.story_id))
 
         scored.sort(reverse=True)
-        return [story_id for _, story_id in scored]
+        pool = [story_id for _, story_id in scored[:POOL_SIZE]]
+        remainder = [story_id for _, story_id in scored[POOL_SIZE:]]
+        with self._rng_lock:
+            self.rng.shuffle(pool)
+        return pool + remainder

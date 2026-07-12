@@ -89,10 +89,10 @@ class RecommenderEngine:
         self.rng = rng or random.Random()
         self._rng_lock = threading.Lock()
         self.strategies = {
-            CONTENT_BASED: ContentBasedStrategy(),
+            CONTENT_BASED: ContentBasedStrategy(rng=random.Random(rng.randint(0, 2**32) if rng else None)),
             COLLABORATIVE: CollaborativeStrategy(),
             TOPICAL: TopicalStrategy(boosted_story_ids),
-            WILDCARD: WildcardStrategy(),
+            WILDCARD: WildcardStrategy(rng=random.Random(rng.randint(0, 2**32) if rng else None)),
         }
 
     # -- population / persistence -----------------------------------------
