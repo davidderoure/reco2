@@ -64,6 +64,12 @@ REENGAGEMENT_RAMP_THRESHOLD = 18
 # before, even though repeats are otherwise allowed.
 MIN_FRESH_PER_BATCH = 2
 
+# Number of recent batches whose stories are excluded from fresh
+# recommendations, preventing short-term cycling. N=2 means the last 2
+# batches (12 stories) are avoided; relaxes automatically if the catalogue
+# is too small to honour it.
+RECENT_BATCHES_TO_EXCLUDE = 2
+
 
 def _normalize_score(score_1_to_9: int) -> float:
     """Map a 1-9 connectedness score onto 0-1."""
@@ -121,6 +127,7 @@ class RecommenderEngine:
         entry.secondary_scores = list(scores[1:4])
 
         self._recompute_tag_affinity(user)
+        user.has_new_score_since_last_request = True
         user.last_updated = timestamp
 
     def record_engagement_stop(
@@ -250,59 +257,120 @@ class RecommenderEngine:
         timestamp = timestamp if timestamp is not None else time.time()
         user = self.get_or_create_user(user_id)
 
-        # "Seen" = actually answered the (compulsory) connectedness
-        # question. Open question #8, decided 2026-06-22: a story opened
-        # but abandoned before answering doesn't count for anything, so a
-        # story_history entry with viewed_pct but no connectedness is NOT
-        # treated as seen and remains eligible to be (re)recommended.
         seen = self._seen_story_ids(user)
         previously_recommended = set(user.recommended_story_ids)
+        has_new_score = user.has_new_score_since_last_request
+        user.has_new_score_since_last_request = False
 
-        # Cold start = no interaction history at all yet. Deliberately not
-        # based on tag_affinity: if the catalogue has no tags (e.g. early
-        # testing with mock stories), tag_affinity can never be populated,
-        # which would otherwise make every user look cold-start forever.
+        # Batch preservation: if the user hasn't answered a connectedness
+        # question since their last visit, return the previous batch minus
+        # any story they interacted with but didn't score (stopped early or
+        # aborted). This gives them a stable set — the app holds their place
+        # rather than reshuffling on a quick exit or interruption.
+        if not has_new_score and user.recent_batches:
+            preserved = self._preserved_batch(user, seen)
+            if len(preserved) == 6:
+                user.last_recommendation_request_at = timestamp
+                return preserved
+            # Fewer than 6 (some removed) — top up with fresh picks below,
+            # treating preserved stories as already chosen. Also exclude the
+            # dropped stories so the topup doesn't immediately re-add them.
+            preserved_ids = {sid for sid, _ in preserved}
+            removed_ids = set(user.recent_batches[0]) - preserved_ids
+            topup_excluded = seen | preserved_ids | removed_ids
+            topup = self._topup_for_preserved(user, seen, topup_excluded, 6 - len(preserved))
+            results = preserved + topup
+            self._finalise_batch(user, results, timestamp)
+            return results
+
+        # Fresh recommendations — build exclusion window from recent batches
+        # to prevent short-term cycling (RECENT_BATCHES_TO_EXCLUDE = 2).
+        # Relaxes automatically when the catalogue is too small.
+        recently_recommended = {
+            sid
+            for batch in user.recent_batches[:RECENT_BATCHES_TO_EXCLUDE]
+            for sid in batch
+        }
+
+        # Cold start = no scored stories yet.
         is_cold_start = not seen
 
         if is_cold_start:
             results = self._cold_start_recommendations(user, seen)
         else:
-            results = self._steady_state_recommendations(user, seen)
+            results = self._steady_state_recommendations(user, seen, recently_recommended)
 
-        # Catalogue exhaustion fallback: if strategies couldn't fill all 6
-        # unique slots from unseen stories at all, relax the exclusion and
-        # re-recommend previously high-connectedness stories outright.
         if len(results) < 6:
             results = self._fill_with_reengagement(user, seen, results)
 
-        # Open question #6, decided 2026-06-22: repeats across requests are
-        # allowed, but at least MIN_FRESH_PER_BATCH per batch must never
-        # have been recommended to this user before.
         results = self._ensure_minimum_freshness(user, seen, previously_recommended, results)
 
+        self._finalise_batch(user, results, timestamp)
+        return results
+
+    def _preserved_batch(self, user: UserModel, seen: set[str]) -> list[tuple[str, int]]:
+        """Previous batch minus stories the user interacted with but didn't score."""
+        last_batch = user.recent_batches[0]
+        preserved = []
+        for story_id in last_batch:
+            entry = user.story_history.get(story_id)
+            interacted_without_scoring = (
+                entry is not None
+                and entry.connectedness is None
+                and entry.timestamp > user.last_recommendation_request_at
+            )
+            if not interacted_without_scoring:
+                preserved.append((story_id, self._infer_rec_type(story_id, user)))
+        return preserved
+
+    def _infer_rec_type(self, story_id: str, user: UserModel) -> int:
+        """Re-use the wildcard type as a neutral fallback for preserved slots
+        where the original type is no longer tracked."""
+        return WILDCARD
+
+    def _topup_for_preserved(
+        self, user: UserModel, seen: set[str], excluded: set[str], needed: int
+    ) -> list[tuple[str, int]]:
+        """Fill remaining slots after batch preservation with fresh picks."""
+        results = []
+        chosen = set(excluded)
+        for rec_type in [CONTENT_BASED, TOPICAL, WILDCARD, COLLABORATIVE]:
+            if len(results) >= needed:
+                break
+            strategy = self.strategies[rec_type]
+            for story_id in strategy.candidates(user, self.catalogue, self.population, chosen):
+                if len(results) >= needed:
+                    break
+                results.append((story_id, rec_type))
+                chosen.add(story_id)
+        return results
+
+    def _finalise_batch(self, user: UserModel, results: list[tuple[str, int]], timestamp: float) -> None:
+        """Update user model bookkeeping after producing a batch."""
         for story_id, _ in results:
             user.recommended_story_ids.add(story_id)
-        user.last_recommendations = [sid for sid, _ in results]
-
-        # Advance the "new for this user" marker only after generating
-        # this batch, so TopicalStrategy compared against the *previous*
-        # visit's timestamp, not this one.
+        new_batch = [sid for sid, _ in results]
+        user.recent_batches = ([new_batch] + user.recent_batches)[:RECENT_BATCHES_TO_EXCLUDE]
         user.last_recommendation_request_at = timestamp
-
-        return results
 
     def _seen_story_ids(self, user: UserModel) -> set[str]:
         return {sid for sid, e in user.story_history.items() if e.connectedness is not None}
 
     def _steady_state_recommendations(
-        self, user: UserModel, seen: set[str]
+        self, user: UserModel, seen: set[str], recently_recommended: set[str] | None = None
     ) -> list[tuple[str, int]]:
+        recently_recommended = recently_recommended or set()
         results: list[tuple[str, int]] = []
         chosen: set[str] = set()
 
+        # Exclude recently recommended stories (N-batch window) from the
+        # candidate pool so the same stories don't cycle back too quickly.
+        # Falls back to including them if the catalogue is too small.
+        excluded = seen | recently_recommended
+
         for rec_type, count in SLOT_COUNTS.items():
             strategy = self.strategies[rec_type]
-            candidates = strategy.candidates(user, self.catalogue, self.population, seen | chosen)
+            candidates = strategy.candidates(user, self.catalogue, self.population, excluded | chosen)
             picked = 0
             for story_id in candidates:
                 if story_id in chosen:
@@ -313,27 +381,37 @@ class RecommenderEngine:
                 if picked == count:
                     break
 
-        # A strategy may come up short — e.g. collaborative with too few
-        # comparable users early in the trial, or content-based with an
-        # untagged catalogue (tags may not be populated yet, e.g. early
-        # testing with mock stories). Top up the shortfall from other
-        # strategies, in priority order, before falling back to
-        # re-engagement on already-rated stories. Content-based first
-        # (still personalised), then topical/wildcard (tag-independent,
-        # so they work even when content-based/collaborative can't).
-        for topup_type in (CONTENT_BASED, TOPICAL, WILDCARD):
-            if len(results) == 6:
-                break
-            topup = self.strategies[topup_type].candidates(
-                user, self.catalogue, self.population, seen | chosen
-            )
-            for story_id in topup:
+        # Fill any shortfall with stories not in the recent-batch window
+        # (COLLABORATIVE underproduces early in the trial — don't relax the
+        # window just because collaborative was thin).
+        if len(results) < 6:
+            for topup_type in (CONTENT_BASED, TOPICAL, WILDCARD):
                 if len(results) == 6:
                     break
-                if story_id in chosen:
-                    continue
-                results.append((story_id, topup_type))
-                chosen.add(story_id)
+                for story_id in self.strategies[topup_type].candidates(
+                    user, self.catalogue, self.population, excluded | chosen
+                ):
+                    if len(results) == 6:
+                        break
+                    if story_id in chosen:
+                        continue
+                    results.append((story_id, topup_type))
+                    chosen.add(story_id)
+
+        # Only now relax the recent-batch exclusion if we still can't fill 6.
+        if len(results) < 6 and recently_recommended:
+            for rec_type in (CONTENT_BASED, TOPICAL, WILDCARD, COLLABORATIVE):
+                if len(results) == 6:
+                    break
+                for story_id in self.strategies[rec_type].candidates(
+                    user, self.catalogue, self.population, seen | chosen
+                ):
+                    if len(results) == 6:
+                        break
+                    if story_id in chosen:
+                        continue
+                    results.append((story_id, rec_type))
+                    chosen.add(story_id)
 
         results = self._apply_reengagement_ramp(user, seen, results)
         return results

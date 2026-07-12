@@ -65,7 +65,11 @@ class UserModel:
     # Stories may also reach a user via search or bookmarks rather than only
     # via recommendations, so this is tracked independently of story_history.
     bookmarked_story_ids: dict[str, float] = field(default_factory=dict)
-    last_recommendations: list[str] = field(default_factory=list)  # slot order
+    # Rolling window of the last RECENT_BATCHES_TO_EXCLUDE batches (most
+    # recent first). Used to exclude recently-seen stories from fresh
+    # recommendations, preventing short-term cycling. Replaces the old
+    # single-batch last_recommendations field.
+    recent_batches: list[list[str]] = field(default_factory=list)
     recommended_story_ids: set[str] = field(default_factory=set)  # ever shown
     last_updated: float = 0.0
     # Timestamp of this user's previous GetRecommendations call (0.0 if
@@ -73,6 +77,10 @@ class UserModel:
     # specifically (added since they last visited), not just new to the
     # catalogue overall — see TopicalStrategy.
     last_recommendation_request_at: float = 0.0
+    # Set to True by record_answered_question; read and reset by
+    # get_recommendations to decide whether to preserve the previous batch
+    # or generate a fresh one.
+    has_new_score_since_last_request: bool = False
 
     def to_json(self) -> str:
         return json.dumps({
@@ -89,10 +97,11 @@ class UserModel:
                 for sid, e in self.story_history.items()
             },
             "bookmarked_story_ids": self.bookmarked_story_ids,
-            "last_recommendations": self.last_recommendations,
+            "recent_batches": self.recent_batches,
             "recommended_story_ids": sorted(self.recommended_story_ids),
             "last_updated": self.last_updated,
             "last_recommendation_request_at": self.last_recommendation_request_at,
+            "has_new_score_since_last_request": self.has_new_score_since_last_request,
         })
 
     @classmethod
@@ -107,8 +116,10 @@ class UserModel:
             tag_affinity=data.get("tag_affinity", {}),
             story_history=history,
             bookmarked_story_ids=data.get("bookmarked_story_ids", {}),
-            last_recommendations=data.get("last_recommendations", []),
+            recent_batches=data.get("recent_batches",
+                [data["last_recommendations"]] if data.get("last_recommendations") else []),
             recommended_story_ids=set(data.get("recommended_story_ids", [])),
             last_updated=data.get("last_updated", 0.0),
             last_recommendation_request_at=data.get("last_recommendation_request_at", 0.0),
+            has_new_score_since_last_request=data.get("has_new_score_since_last_request", False),
         )

@@ -88,10 +88,15 @@ def test_minimum_freshness_policy_allows_repeats_but_requires_some_fresh():
     # Open question #6 (decided 2026-06-22): repeats across requests are
     # allowed, but at least MIN_FRESH_PER_BATCH per batch must be stories
     # never recommended to this user before.
+    # A connectedness answer is required between calls; otherwise batch
+    # preservation kicks in and returns the same batch (by design).
     engine = RecommenderEngine(make_catalogue(n=30))
     user_id = "u1"
-    first_ids = {sid for sid, _ in engine.get_recommendations(user_id)}
-    second_ids = {sid for sid, _ in engine.get_recommendations(user_id)}
+    now = time.time()
+    first_ids = {sid for sid, _ in engine.get_recommendations(user_id, timestamp=now)}
+    first_story = next(iter(first_ids))
+    engine.record_answered_question(user_id, first_story, [7, 5, 5, 5], timestamp=now + 1)
+    second_ids = {sid for sid, _ in engine.get_recommendations(user_id, timestamp=now + 2)}
 
     fresh_in_second = second_ids - first_ids
     assert len(fresh_in_second) >= MIN_FRESH_PER_BATCH
@@ -166,7 +171,12 @@ def test_topical_prioritizes_stories_new_since_users_last_visit():
     user_id = "u1"
 
     t0 = 1000.0
-    engine.get_recommendations(user_id, timestamp=t0)  # first visit
+    first_recs = engine.get_recommendations(user_id, timestamp=t0)  # first visit
+    # Answer a question so the next call generates fresh recommendations
+    # (batch preservation would otherwise return the same batch).
+    engine.record_answered_question(
+        user_id, first_recs[0][0], [7, 5, 5, 5], timestamp=t0 + 1
+    )
 
     # A story added well after the user's last visit, but with a lower
     # created_at than catalogue.newest() would naturally put first if we
@@ -178,3 +188,77 @@ def test_topical_prioritizes_stories_new_since_users_last_visit():
     recs = engine.get_recommendations(user_id, timestamp=t0 + 1000)
     topical_picks = [sid for sid, rec_type in recs if rec_type == 3]
     assert "brand-new" in topical_picks
+
+
+def test_batch_preserved_when_no_connectedness_answer():
+    # If the user returns without having answered the connectedness question
+    # (e.g. quick exit), the same batch should be returned minus any story
+    # they interacted with but didn't score.
+    engine = RecommenderEngine(make_catalogue(n=20))
+    user_id = "u1"
+    now = time.time()
+    first_recs = engine.get_recommendations(user_id, timestamp=now)
+    first_ids = [sid for sid, _ in first_recs]
+
+    # No connectedness answer — second call should return same batch
+    second_recs = engine.get_recommendations(user_id, timestamp=now + 10)
+    second_ids = [sid for sid, _ in second_recs]
+    assert set(first_ids) == set(second_ids)
+
+
+def test_batch_preserved_minus_interacted_without_scoring():
+    # If the user started a story (progress event) but didn't answer, that
+    # story should be dropped from the preserved batch on the next call.
+    engine = RecommenderEngine(make_catalogue(n=20))
+    user_id = "u1"
+    now = time.time()
+    first_recs = engine.get_recommendations(user_id, timestamp=now)
+    first_ids = [sid for sid, _ in first_recs]
+    dropped = first_ids[0]
+
+    # Simulate progress on one story without a connectedness answer
+    engine.record_engagement_progress(user_id, dropped, progress_percentage=50.0, timestamp=now + 5)
+
+    second_recs = engine.get_recommendations(user_id, timestamp=now + 10)
+    second_ids = [sid for sid, _ in second_recs]
+    assert dropped not in second_ids
+    assert len(second_recs) == 6  # topped up to 6
+
+
+def test_fresh_batch_after_connectedness_answer():
+    # After a connectedness answer, the next call must generate fresh
+    # recommendations rather than returning the preserved batch.
+    engine = RecommenderEngine(make_catalogue(n=20))
+    user_id = "u1"
+    now = time.time()
+    first_recs = engine.get_recommendations(user_id, timestamp=now)
+    first_ids = set(sid for sid, _ in first_recs)
+    answered_story = next(iter(first_ids))
+
+    engine.record_answered_question(user_id, answered_story, [7, 5, 5, 5], timestamp=now + 1)
+
+    second_recs = engine.get_recommendations(user_id, timestamp=now + 2)
+    second_ids = set(sid for sid, _ in second_recs)
+    # The scored story is now "seen" and won't reappear; at least some others differ
+    assert answered_story not in second_ids
+
+
+def test_recent_batches_excluded_from_next_fresh_batch():
+    # Stories from the last RECENT_BATCHES_TO_EXCLUDE batches should not
+    # appear in fresh recommendations (when the catalogue is large enough).
+    from recommender.engine import RECENT_BATCHES_TO_EXCLUDE
+    engine = RecommenderEngine(make_catalogue(n=50))
+    user_id = "u1"
+    now = time.time()
+
+    batch1_ids = set(sid for sid, _ in engine.get_recommendations(user_id, timestamp=now))
+    engine.record_answered_question(user_id, next(iter(batch1_ids)), [7, 5, 5, 5], timestamp=now + 1)
+
+    batch2_ids = set(sid for sid, _ in engine.get_recommendations(user_id, timestamp=now + 2))
+    engine.record_answered_question(user_id, next(iter(batch2_ids)), [7, 5, 5, 5], timestamp=now + 3)
+
+    # Both batch1 and batch2 should be excluded if RECENT_BATCHES_TO_EXCLUDE >= 2
+    if RECENT_BATCHES_TO_EXCLUDE >= 2:
+        batch3_ids = set(sid for sid, _ in engine.get_recommendations(user_id, timestamp=now + 4))
+        overlap = batch3_ids & (batch1_ids | batch2_ids)
+        assert len(overlap) == 0, f"Recent-batch stories leaked into batch3: {overlap}"
