@@ -19,6 +19,9 @@ class Persona:
     description: str
     theme_weights: dict[str, float] = field(default_factory=dict)  # 0-1, default 0.3 (mild baseline)
     format_weights: dict[str, float] = field(default_factory=dict)  # 0-1, default 0.5 (no preference)
+    # Robustness overrides — None / "first" = normal behaviour
+    selection: str = "first"    # "first" = always opens recs[0]; "random" = picks uniformly at random
+    fixed_score: int | None = None  # if set, always returns this score (1-9) regardless of story tags
 
     def affinity_for(self, tag: str, themes: set[str], formats: set[str]) -> float:
         if tag in themes:
@@ -77,6 +80,34 @@ PERSONAS: list[Persona] = [
             "Literature": 0.7,
             "Friendship": 0.7,
         },
+    ),
+]
+
+
+ROBUSTNESS_PERSONAS: list[Persona] = [
+    Persona(
+        name="always_first",
+        description="Always opens the first (highest-ranked) recommendation. Normal score distribution.",
+    ),
+    Persona(
+        name="always_random",
+        description="Always opens a randomly chosen recommendation from the batch. Normal score distribution.",
+        selection="random",
+    ),
+    Persona(
+        name="always_low_score",
+        description="Always opens the first recommendation and returns score 1 — chronically low connectedness regardless of content.",
+        fixed_score=1,
+    ),
+    Persona(
+        name="always_high_score",
+        description="Always opens the first recommendation and returns score 9 — everything connects, no discrimination.",
+        fixed_score=9,
+    ),
+    Persona(
+        name="always_middle_score",
+        description="Always opens the first recommendation and returns score 5 — flat neutral response to all content.",
+        fixed_score=5,
     ),
 ]
 

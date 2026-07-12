@@ -1,0 +1,182 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>ORIGIN recommender — synthetic journeys</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: system-ui, sans-serif; font-size: 14px; color: #1a1a18;
+         background: #f7f6f2; padding: 2rem; }
+  h1 { font-size: 20px; font-weight: 500; margin-bottom: 0.25rem; }
+  .meta { color: #52514e; font-size: 13px; margin-bottom: 2rem; }
+  .persona-section { margin-bottom: 3rem; }
+  .persona-heading { font-size: 16px; font-weight: 500; margin-bottom: 0.25rem; border-top: 1px solid #ddd; padding-top: 1.5rem; }
+  .persona-desc { color: #52514e; font-size: 13px; margin-bottom: 1rem; }
+  .user-block { background: #fff; border: 0.5px solid #ddd; border-radius: 10px;
+                 padding: 1.25rem; margin-bottom: 1rem; }
+  .user-label { font-size: 13px; font-weight: 500; color: #52514e; margin-bottom: 0.75rem; }
+  .stats-row { display: flex; gap: 12px; margin-bottom: 1rem; flex-wrap: wrap; }
+  .stat { background: #f7f6f2; border-radius: 8px; padding: 0.6rem 0.9rem; flex: 1; min-width: 80px; }
+  .stat-label { font-size: 11px; color: #898781; text-transform: uppercase; letter-spacing: 0.04em; }
+  .stat-value { font-size: 20px; font-weight: 500; margin-top: 2px; }
+  .charts-row { display: grid; grid-template-columns: 2fr 1fr; gap: 1rem; }
+  .chart-wrap { position: relative; }
+  .chart-label { font-size: 11px; color: #898781; margin-bottom: 6px; text-transform: uppercase; letter-spacing: 0.04em; }
+  .legend { display: flex; gap: 12px; flex-wrap: wrap; margin-top: 8px; }
+  .legend-item { display: flex; align-items: center; gap: 4px; font-size: 11px; color: #52514e; }
+  .legend-dot { width: 8px; height: 8px; border-radius: 50%; }
+  @media (max-width: 600px) { .charts-row { grid-template-columns: 1fr; } }
+</style>
+</head>
+<body>
+<h1>ORIGIN recommender — synthetic user journeys</h1>
+<p class="meta">
+  Catalogue: 120 stories &nbsp;·&nbsp; 15 rounds per user &nbsp;·&nbsp;
+  Clean baseline — no interruption noise.
+</p>
+
+<div id="root"></div>
+
+<script>
+const USERS = [{"user_id": "always_first-0", "persona": "always_first", "persona_desc": "Always opens the first (highest-ranked) recommendation. Normal score distribution.", "rounds": [{"round": 1, "opened": "story-0070", "tags": ["Visual", "Activism"], "rec_type": "topical", "score": 4, "interruption": "none"}, {"round": 2, "opened": "story-0025", "tags": ["Visual", "Technology", "Activism"], "rec_type": "content", "score": 3, "interruption": "none"}, {"round": 3, "opened": "story-0087", "tags": ["Visual", "Medicine"], "rec_type": "content", "score": 2, "interruption": "none"}, {"round": 4, "opened": "story-0049", "tags": ["Visual", "Experience of Disability", "Activism", "Adventure"], "rec_type": "content", "score": 2, "interruption": "none"}, {"round": 5, "opened": "story-0094", "tags": ["Audio", "Experience of Disability", "Activism"], "rec_type": "content", "score": 4, "interruption": "none"}, {"round": 6, "opened": "story-0100", "tags": ["Audio", "Adventure"], "rec_type": "content", "score": 3, "interruption": "none"}, {"round": 7, "opened": "story-0069", "tags": ["Visual", "Medicine"], "rec_type": "content", "score": 3, "interruption": "none"}, {"round": 8, "opened": "story-0083", "tags": ["Visual", "Experience of Disability", "Visual Arts"], "rec_type": "content", "score": 4, "interruption": "none"}, {"round": 9, "opened": "story-0022", "tags": ["Audio", "Friendship", "Visual Arts"], "rec_type": "content", "score": 2, "interruption": "none"}, {"round": 10, "opened": "story-0071", "tags": ["Visual", "Technology", "Adventure", "SE Asian Experience"], "rec_type": "content", "score": 2, "interruption": "none"}, {"round": 11, "opened": "story-0036", "tags": ["Audio", "South Asian Experience", "Activism", "Gender"], "rec_type": "content", "score": 3, "interruption": "none"}, {"round": 12, "opened": "story-0116", "tags": ["Audio", "Experience of Disability", "Medicine", "Academia"], "rec_type": "content", "score": 2, "interruption": "none"}, {"round": 13, "opened": "story-0055", "tags": ["Audio", "Sports", "Technology"], "rec_type": "content", "score": 3, "interruption": "none"}, {"round": 14, "opened": "story-0079", "tags": ["Visual", "Sports"], "rec_type": "content", "score": 3, "interruption": "none"}, {"round": 15, "opened": "story-0033", "tags": ["Visual", "Visual Arts", "Academia"], "rec_type": "content", "score": 2, "interruption": "none"}], "final_affinity": {"Visual": 0.222, "Activism": 0.275, "Technology": 0.208, "Medicine": 0.167, "Experience of Disability": 0.25, "Adventure": 0.167, "Audio": 0.229, "Visual Arts": 0.208, "Friendship": 0.125, "SE Asian Experience": 0.125, "South Asian Experience": 0.25, "Gender": 0.25, "Academia": 0.125, "Sports": 0.25}, "true_theme_prefs": {}}, {"user_id": "always_random-0", "persona": "always_random", "persona_desc": "Always opens a randomly chosen recommendation from the batch. Normal score distribution.", "rounds": [{"round": 1, "opened": "story-0116", "tags": ["Audio", "Experience of Disability", "Medicine", "Academia"], "rec_type": "wildcard", "score": 2, "interruption": "none"}, {"round": 2, "opened": "story-0103", "tags": ["Audio", "Heritage"], "rec_type": "content", "score": 2, "interruption": "none"}, {"round": 3, "opened": "story-0038", "tags": ["Video", "Science", "Missed Chances", "South Asian Experience"], "rec_type": "wildcard", "score": 4, "interruption": "none"}, {"round": 4, "opened": "story-0070", "tags": ["Visual", "Activism"], "rec_type": "collab", "score": 3, "interruption": "none"}, {"round": 5, "opened": "story-0027", "tags": ["Visual", "Missed Chances"], "rec_type": "content", "score": 3, "interruption": "none"}, {"round": 6, "opened": "story-0050", "tags": ["Video", "Activism", "Archaeology"], "rec_type": "content", "score": 4, "interruption": "none"}, {"round": 7, "opened": "story-0036", "tags": ["Audio", "South Asian Experience", "Activism", "Gender"], "rec_type": "collab", "score": 2, "interruption": "none"}, {"round": 8, "opened": "story-0083", "tags": ["Visual", "Experience of Disability", "Visual Arts"], "rec_type": "collab", "score": 2, "interruption": "none"}, {"round": 9, "opened": "story-0067", "tags": ["Audio", "Migration", "Archaeology", "WWII"], "rec_type": "wildcard", "score": 4, "interruption": "none"}, {"round": 10, "opened": "story-0052", "tags": ["Visual", "WWII", "Craftsmanship", "East Asian Experience"], "rec_type": "wildcard", "score": 2, "interruption": "none"}, {"round": 11, "opened": "story-0053", "tags": ["Video", "Migration", "Heritage", "Hiding Self"], "rec_type": "content", "score": 2, "interruption": "none"}, {"round": 12, "opened": "story-0069", "tags": ["Visual", "Medicine"], "rec_type": "collab", "score": 4, "interruption": "none"}, {"round": 13, "opened": "story-0087", "tags": ["Visual", "Medicine"], "rec_type": "content", "score": 3, "interruption": "none"}, {"round": 14, "opened": "story-0104", "tags": ["Visual", "Science"], "rec_type": "content", "score": 4, "interruption": "none"}, {"round": 15, "opened": "story-0100", "tags": ["Audio", "Adventure"], "rec_type": "collab", "score": 3, "interruption": "none"}], "final_affinity": {"Audio": 0.2, "Experience of Disability": 0.125, "Medicine": 0.25, "Academia": 0.125, "Heritage": 0.125, "Video": 0.292, "Science": 0.375, "Missed Chances": 0.312, "South Asian Experience": 0.25, "Visual": 0.25, "Activism": 0.25, "Archaeology": 0.375, "Gender": 0.125, "Visual Arts": 0.125, "Migration": 0.25, "WWII": 0.25, "Craftsmanship": 0.125, "East Asian Experience": 0.125, "Hiding Self": 0.125, "Adventure": 0.25}, "true_theme_prefs": {}}, {"user_id": "always_low_score-0", "persona": "always_low_score", "persona_desc": "Always opens the first recommendation and returns score 1 \u2014 chronically low connectedness regardless of content.", "rounds": [{"round": 1, "opened": "story-0070", "tags": ["Visual", "Activism"], "rec_type": "topical", "score": 1, "interruption": "none"}, {"round": 2, "opened": "story-0082", "tags": ["Written", "Heritage", "Activism", "Childhood"], "rec_type": "topical", "score": 1, "interruption": "none"}, {"round": 3, "opened": "story-0016", "tags": ["Video", "Experience of Disability", "Hiding Self"], "rec_type": "topical", "score": 1, "interruption": "none"}, {"round": 4, "opened": "story-0027", "tags": ["Visual", "Missed Chances"], "rec_type": "topical", "score": 1, "interruption": "none"}, {"round": 5, "opened": "story-0018", "tags": ["Video", "Archaeology", "Science", "Gender"], "rec_type": "topical", "score": 1, "interruption": "none"}, {"round": 6, "opened": "story-0033", "tags": ["Visual", "Visual Arts", "Academia"], "rec_type": "topical", "score": 1, "interruption": "none"}, {"round": 7, "opened": "story-0109", "tags": ["Video", "African Experience"], "rec_type": "topical", "score": 1, "interruption": "none"}, {"round": 8, "opened": "story-0028", "tags": ["Written", "SE Asian Experience"], "rec_type": "topical", "score": 1, "interruption": "none"}, {"round": 9, "opened": "story-0053", "tags": ["Video", "Migration", "Heritage", "Hiding Self"], "rec_type": "topical", "score": 1, "interruption": "none"}, {"round": 10, "opened": "story-0042", "tags": ["Audio", "LGBTQ+ Experience"], "rec_type": "topical", "score": 1, "interruption": "none"}, {"round": 11, "opened": "story-0036", "tags": ["Audio", "South Asian Experience", "Activism", "Gender"], "rec_type": "topical", "score": 1, "interruption": "none"}, {"round": 12, "opened": "story-0111", "tags": ["Video", "Archaeology", "WWI", "Hiding Self"], "rec_type": "topical", "score": 1, "interruption": "none"}, {"round": 13, "opened": "story-0058", "tags": ["Written", "Performing Arts", "Poetry"], "rec_type": "topical", "score": 1, "interruption": "none"}, {"round": 14, "opened": "story-0080", "tags": ["Written", "Gender"], "rec_type": "topical", "score": 1, "interruption": "none"}, {"round": 15, "opened": "story-0062", "tags": ["Written", "Industry", "WWII"], "rec_type": "topical", "score": 1, "interruption": "none"}], "final_affinity": {"Visual": 0.0, "Activism": 0.0, "Written": 0.0, "Heritage": 0.0, "Childhood": 0.0, "Video": 0.0, "Experience of Disability": 0.0, "Hiding Self": 0.0, "Missed Chances": 0.0, "Archaeology": 0.0, "Science": 0.0, "Gender": 0.0, "Visual Arts": 0.0, "Academia": 0.0, "African Experience": 0.0, "SE Asian Experience": 0.0, "Migration": 0.0, "Audio": 0.0, "LGBTQ+ Experience": 0.0, "South Asian Experience": 0.0, "WWI": 0.0, "Performing Arts": 0.0, "Poetry": 0.0, "Industry": 0.0, "WWII": 0.0}, "true_theme_prefs": {}}, {"user_id": "always_high_score-0", "persona": "always_high_score", "persona_desc": "Always opens the first recommendation and returns score 9 \u2014 everything connects, no discrimination.", "rounds": [{"round": 1, "opened": "story-0070", "tags": ["Visual", "Activism"], "rec_type": "topical", "score": 9, "interruption": "none"}, {"round": 2, "opened": "story-0025", "tags": ["Visual", "Technology", "Activism"], "rec_type": "content", "score": 9, "interruption": "none"}, {"round": 3, "opened": "story-0106", "tags": ["Visual", "Feeling Unsupported"], "rec_type": "content", "score": 9, "interruption": "none"}, {"round": 4, "opened": "story-0105", "tags": ["Visual", "Feeling Unsupported", "LGBTQ+ Experience"], "rec_type": "content", "score": 9, "interruption": "none"}, {"round": 5, "opened": "story-0118", "tags": ["Visual", "Craftsmanship"], "rec_type": "content", "score": 9, "interruption": "none"}, {"round": 6, "opened": "story-0077", "tags": ["Visual", "Craftsmanship"], "rec_type": "content", "score": 9, "interruption": "none"}, {"round": 7, "opened": "story-0104", "tags": ["Visual", "Science"], "rec_type": "content", "score": 9, "interruption": "none"}, {"round": 8, "opened": "story-0089", "tags": ["Audio", "LGBTQ+ Experience"], "rec_type": "content", "score": 9, "interruption": "none"}, {"round": 9, "opened": "story-0042", "tags": ["Audio", "LGBTQ+ Experience"], "rec_type": "content", "score": 9, "interruption": "none"}, {"round": 10, "opened": "story-0055", "tags": ["Audio", "Sports", "Technology"], "rec_type": "content", "score": 9, "interruption": "none"}, {"round": 11, "opened": "story-0079", "tags": ["Visual", "Sports"], "rec_type": "content", "score": 9, "interruption": "none"}, {"round": 12, "opened": "story-0094", "tags": ["Audio", "Experience of Disability", "Activism"], "rec_type": "content", "score": 9, "interruption": "none"}, {"round": 13, "opened": "story-0049", "tags": ["Visual", "Experience of Disability", "Activism", "Adventure"], "rec_type": "content", "score": 9, "interruption": "none"}, {"round": 14, "opened": "story-0100", "tags": ["Audio", "Adventure"], "rec_type": "content", "score": 9, "interruption": "none"}, {"round": 15, "opened": "story-0072", "tags": ["Visual", "Heritage", "Adventure"], "rec_type": "content", "score": 9, "interruption": "none"}], "final_affinity": {"Visual": 1.0, "Activism": 1.0, "Technology": 1.0, "Feeling Unsupported": 1.0, "LGBTQ+ Experience": 1.0, "Craftsmanship": 1.0, "Science": 1.0, "Audio": 1.0, "Sports": 1.0, "Experience of Disability": 1.0, "Adventure": 1.0, "Heritage": 1.0}, "true_theme_prefs": {}}, {"user_id": "always_middle_score-0", "persona": "always_middle_score", "persona_desc": "Always opens the first recommendation and returns score 5 \u2014 flat neutral response to all content.", "rounds": [{"round": 1, "opened": "story-0070", "tags": ["Visual", "Activism"], "rec_type": "topical", "score": 5, "interruption": "none"}, {"round": 2, "opened": "story-0025", "tags": ["Visual", "Technology", "Activism"], "rec_type": "content", "score": 5, "interruption": "none"}, {"round": 3, "opened": "story-0087", "tags": ["Visual", "Medicine"], "rec_type": "content", "score": 5, "interruption": "none"}, {"round": 4, "opened": "story-0069", "tags": ["Visual", "Medicine"], "rec_type": "content", "score": 5, "interruption": "none"}, {"round": 5, "opened": "story-0106", "tags": ["Visual", "Feeling Unsupported"], "rec_type": "content", "score": 5, "interruption": "none"}, {"round": 6, "opened": "story-0105", "tags": ["Visual", "Feeling Unsupported", "LGBTQ+ Experience"], "rec_type": "content", "score": 5, "interruption": "none"}, {"round": 7, "opened": "story-0118", "tags": ["Visual", "Craftsmanship"], "rec_type": "content", "score": 5, "interruption": "none"}, {"round": 8, "opened": "story-0077", "tags": ["Visual", "Craftsmanship"], "rec_type": "content", "score": 5, "interruption": "none"}, {"round": 9, "opened": "story-0095", "tags": ["Video", "Activism", "Friendship", "Feeling Unsupported"], "rec_type": "content", "score": 5, "interruption": "none"}, {"round": 10, "opened": "story-0041", "tags": ["Video", "LGBTQ+ Experience"], "rec_type": "content", "score": 5, "interruption": "none"}, {"round": 11, "opened": "story-0050", "tags": ["Video", "Activism", "Archaeology"], "rec_type": "content", "score": 5, "interruption": "none"}, {"round": 12, "opened": "story-0043", "tags": ["Written", "LGBTQ+ Experience", "Archaeology"], "rec_type": "content", "score": 5, "interruption": "none"}, {"round": 13, "opened": "story-0054", "tags": ["Written", "Archaeology"], "rec_type": "content", "score": 5, "interruption": "none"}, {"round": 14, "opened": "story-0114", "tags": ["Written", "Migration", "Craftsmanship"], "rec_type": "content", "score": 5, "interruption": "none"}, {"round": 15, "opened": "story-0065", "tags": ["Written", "Migration"], "rec_type": "content", "score": 5, "interruption": "none"}], "final_affinity": {"Visual": 0.5, "Activism": 0.5, "Technology": 0.5, "Medicine": 0.5, "Feeling Unsupported": 0.5, "LGBTQ+ Experience": 0.5, "Craftsmanship": 0.5, "Video": 0.5, "Friendship": 0.5, "Archaeology": 0.5, "Written": 0.5, "Migration": 0.5}, "true_theme_prefs": {}}];
+const REC_COLORS = {"content": "#2a78d6", "collab": "#1baf7a", "topical": "#eda100", "wildcard": "#4a3aa7"};
+
+const INTERRUPTION_LABELS = {
+  "none": "", "stop_early": "stop-early",
+  "abort_low": "abort (low%)", "abort_high": "abort (high%)", "no_event": "no event"
+};
+
+function statCard(label, value, color) {
+  return `<div class="stat">
+    <div class="stat-label">${label}</div>
+    <div class="stat-value" style="${color ? 'color:'+color : ''}">${value}</div>
+  </div>`;
+}
+
+function buildUser(u, container) {
+  const scored = u.rounds.filter(r => r.score !== null);
+  const interrupted = u.rounds.filter(r => r.interruption !== "none");
+  const meanScore = scored.length ? (scored.reduce((s,r) => s+r.score, 0) / scored.length).toFixed(1) : "—";
+  const recTypeCounts = {};
+  u.rounds.forEach(r => { recTypeCounts[r.rec_type] = (recTypeCounts[r.rec_type]||0)+1; });
+
+  const block = document.createElement("div");
+  block.className = "user-block";
+  block.innerHTML = `
+    <div class="user-label">User ${u.user_id}</div>
+    <div class="stats-row">
+      ${statCard("scored", scored.length)}
+      ${statCard("interrupted", interrupted.length, interrupted.length > 0 ? "#e34948" : null)}
+      ${statCard("mean score", meanScore, "#2a78d6")}
+      ${statCard("content", recTypeCounts.content||0, "#2a78d6")}
+      ${statCard("collab", recTypeCounts.collab||0, "#1baf7a")}
+      ${statCard("topical", recTypeCounts.topical||0, "#eda100")}
+      ${statCard("wildcard", recTypeCounts.wildcard||0, "#4a3aa7")}
+    </div>
+    <div class="charts-row">
+      <div>
+        <div class="chart-label">Connectedness per round (1–9)</div>
+        <div class="chart-wrap" style="height:180px"><canvas id="line-${u.user_id}" role="img" aria-label="Connectedness scores over ${N_ROUNDS} rounds for user ${u.user_id}">Scores: ${scored.map(r=>`round ${r.round}: ${r.score}`).join(', ')}</canvas></div>
+      </div>
+      <div>
+        <div class="chart-label">Top tag affinities</div>
+        <div class="chart-wrap" style="height:180px"><canvas id="aff-${u.user_id}" role="img" aria-label="Top tag affinities for user ${u.user_id}"></canvas></div>
+      </div>
+    </div>
+    <div class="legend">
+      ${Object.entries(REC_COLORS).map(([k,c]) =>
+        `<span class="legend-item"><span class="legend-dot" style="background:${c}"></span>${k}</span>`
+      ).join("")}
+      <span class="legend-item"><span style="font-size:13px">⚡</span> interrupted (gap = no score)</span>
+    </div>
+  `;
+  container.appendChild(block);
+
+  const rounds = u.rounds;
+  const labels = rounds.map(r => `R${r.round}`);
+  const scores = rounds.map(r => r.score);
+  const pointColors = rounds.map(r => REC_COLORS[r.rec_type] || "#888");
+  const pointRadii = rounds.map(r => r.score !== null ? 5 : 0);
+
+  new Chart(document.getElementById(`line-${u.user_id}`), {
+    type: "line",
+    data: {
+      labels,
+      datasets: [{
+        data: scores,
+        borderColor: "#2a78d6",
+        borderWidth: 2,
+        pointBackgroundColor: pointColors,
+        pointBorderColor: "#fff",
+        pointBorderWidth: 2,
+        pointRadius: pointRadii,
+        spanGaps: false,
+        tension: 0.3,
+      }]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { display: false }, tooltip: {
+        callbacks: {
+          label: (ctx) => {
+            const r = rounds[ctx.dataIndex];
+            const parts = [`score: ${r.score ?? "—"}`, `type: ${r.rec_type}`];
+            if (r.interruption !== "none") parts.push(`⚡ ${INTERRUPTION_LABELS[r.interruption]}`);
+            parts.push(`tags: ${r.tags.join(", ") || "none"}`);
+            return parts;
+          }
+        }
+      } },
+      scales: {
+        y: { min: 1, max: 9, ticks: { stepSize: 2, color: "#898781" }, grid: { color: "#e8e7e1" } },
+        x: { ticks: { color: "#898781", maxRotation: 0 }, grid: { display: false } }
+      }
+    }
+  });
+
+  const topAff = Object.entries(u.final_affinity)
+    .sort((a,b) => b[1]-a[1]).slice(0, 8);
+  new Chart(document.getElementById(`aff-${u.user_id}`), {
+    type: "bar",
+    data: {
+      labels: topAff.map(([t]) => t.length > 14 ? t.slice(0,13)+"…" : t),
+      datasets: [{
+        data: topAff.map(([,v]) => Math.round(v * 100)),
+        backgroundColor: "#2a78d6",
+        borderRadius: 3,
+        barThickness: 12,
+      }]
+    },
+    options: {
+      indexAxis: "y",
+      responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { display: false }, tooltip: {
+        callbacks: { label: ctx => ` ${ctx.raw}%` }
+      } },
+      scales: {
+        x: { min: 0, max: 100, ticks: { callback: v => v+"%", color: "#898781" }, grid: { color: "#e8e7e1" } },
+        y: { ticks: { color: "#898781", font: { size: 11 } }, grid: { display: false } }
+      }
+    }
+  });
+}
+
+const root = document.getElementById("root");
+const byPersona = {};
+USERS.forEach(u => {
+  if (!byPersona[u.persona]) byPersona[u.persona] = { desc: u.persona_desc, users: [] };
+  byPersona[u.persona].users.push(u);
+});
+
+Object.entries(byPersona).forEach(([persona, data]) => {
+  const sec = document.createElement("div");
+  sec.className = "persona-section";
+  sec.innerHTML = `<div class="persona-heading">${persona.replace(/_/g," ")}</div>
+    <div class="persona-desc">${data.desc}</div>`;
+  data.users.forEach(u => buildUser(u, sec));
+  root.appendChild(sec);
+});
+</script>
+</body>
+</html>

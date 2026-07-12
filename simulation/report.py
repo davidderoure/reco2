@@ -15,7 +15,7 @@ import sys
 import time
 
 from .noise import InterruptionType, NO_NOISE, NoiseConfig, high_progress, low_progress, sample_interruption
-from .personas import PERSONAS, simulated_connectedness
+from .personas import PERSONAS, ROBUSTNESS_PERSONAS, simulated_connectedness
 from .synthetic_catalogue import FORMAT_TAGS, THEME_TAGS, generate_catalogue
 from recommender.engine import RecommenderEngine
 
@@ -36,13 +36,20 @@ def collect_journey(
     for round_idx in range(n_rounds):
         timestamp = now + round_idx * 86400
         recs = engine.get_recommendations(user_id, timestamp=timestamp)
-        opened_story_id, opened_type = recs[0]
+        if persona.selection == "random":
+            opened_story_id, opened_type = rng.choice(recs)
+        else:
+            opened_story_id, opened_type = recs[0]
         story = engine.catalogue.get(opened_story_id)
 
         interruption = sample_interruption(rng, noise)
 
         if interruption == InterruptionType.NONE:
-            score = simulated_connectedness(story, persona, rng)
+            score = (
+                persona.fixed_score
+                if persona.fixed_score is not None
+                else simulated_connectedness(story, persona, rng)
+            )
             engine.record_answered_question(user_id, opened_story_id, [score, 5, 5, 5], timestamp=timestamp)
             engine.record_engagement_stop(user_id, opened_story_id, 100.0, timestamp=timestamp)
         elif interruption == InterruptionType.STOP_EARLY:
@@ -289,7 +296,7 @@ Object.entries(byPersona).forEach(([persona, data]) => {{
 </html>"""
 
 
-def main(with_noise: bool = False) -> None:
+def main(with_noise: bool = False, robustness: bool = False) -> None:
     noise = NoiseConfig() if with_noise else NO_NOISE
     now = time.time()
     catalogue = generate_catalogue(n_stories=120, seed=1, now=now)
@@ -297,9 +304,14 @@ def main(with_noise: bool = False) -> None:
     rng = random.Random(42)
     themes = set(THEME_TAGS)
 
+    if robustness:
+        personas_to_run = [(p, 1) for p in ROBUSTNESS_PERSONAS]
+    else:
+        personas_to_run = [(p, USERS_PER_PERSONA) for p in PERSONAS]
+
     all_users = []
-    for persona in PERSONAS:
-        for i in range(USERS_PER_PERSONA):
+    for persona, n_users in personas_to_run:
+        for i in range(n_users):
             user_id = f"{persona.name}-{i}"
             rounds, final_affinity = collect_journey(
                 engine, user_id, persona, rng, now, N_ROUNDS, noise=noise
@@ -317,7 +329,12 @@ def main(with_noise: bool = False) -> None:
                 },
             })
 
-    suffix = "_noise" if with_noise else ""
+    if robustness:
+        suffix = "_robustness"
+    elif with_noise:
+        suffix = "_noise"
+    else:
+        suffix = ""
     path = f"simulation/journeys_report{suffix}.html"
     with open(path, "w") as f:
         f.write(_html(all_users, with_noise, len(catalogue)))
@@ -326,4 +343,5 @@ def main(with_noise: bool = False) -> None:
 
 if __name__ == "__main__":
     with_noise = "--noise" in sys.argv
-    main(with_noise=with_noise)
+    robustness = "--robustness" in sys.argv
+    main(with_noise=with_noise, robustness=robustness)

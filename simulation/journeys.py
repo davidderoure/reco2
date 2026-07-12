@@ -19,7 +19,7 @@ import time
 
 from recommender.engine import RecommenderEngine
 from .noise import InterruptionType, NO_NOISE, NoiseConfig, high_progress, low_progress, sample_interruption
-from .personas import PERSONAS, simulated_connectedness
+from .personas import PERSONAS, ROBUSTNESS_PERSONAS, simulated_connectedness
 from .synthetic_catalogue import generate_catalogue
 
 USERS_PER_PERSONA = 2
@@ -39,13 +39,20 @@ def run_journey(
     for round_idx in range(n_rounds):
         timestamp = now + round_idx * 86400
         recs = engine.get_recommendations(user_id, timestamp=timestamp)
-        opened_story_id, opened_type = recs[0]
+        if persona.selection == "random":
+            opened_story_id, opened_type = rng.choice(recs)
+        else:
+            opened_story_id, opened_type = recs[0]
         story = engine.catalogue.get(opened_story_id)
 
         interruption = sample_interruption(rng, noise)
 
         if interruption == InterruptionType.NONE:
-            score = simulated_connectedness(story, persona, rng)
+            score = (
+                persona.fixed_score
+                if persona.fixed_score is not None
+                else simulated_connectedness(story, persona, rng)
+            )
             engine.record_answered_question(user_id, opened_story_id, [score, 5, 5, 5], timestamp=timestamp)
             engine.record_engagement_stop(user_id, opened_story_id, progress_percentage=100.0, timestamp=timestamp)
         elif interruption == InterruptionType.STOP_EARLY:
@@ -114,7 +121,11 @@ def render_transcript(user_id: str, persona, rounds: list[dict], engine: Recomme
     return "\n".join(lines)
 
 
-def main(output_path: str = "simulation/journeys_output.md", with_noise: bool = False) -> None:
+def main(
+    output_path: str = "simulation/journeys_output.md",
+    with_noise: bool = False,
+    robustness: bool = False,
+) -> None:
     noise = NoiseConfig() if with_noise else NO_NOISE
     now = time.time()
     catalogue = generate_catalogue(n_stories=120, seed=1, now=now)
@@ -131,12 +142,27 @@ def main(output_path: str = "simulation/journeys_output.md", with_noise: bool = 
         if with_noise else "No noise (clean baseline)."
     )
 
+    if robustness:
+        personas_to_run = [(p, 1) for p in ROBUSTNESS_PERSONAS]
+        title = "# Robustness journeys — extreme user behaviours"
+        subtitle = (
+            "Each persona exercises an extreme edge case "
+            "(fixed score, non-standard selection) to verify the "
+            "recommender behaves reasonably under adversarial or degenerate input."
+        )
+    else:
+        personas_to_run = [(p, USERS_PER_PERSONA) for p in PERSONAS]
+        title = "# Synthetic user journeys"
+        subtitle = (
+            "Generated against the definitive ORIGIN tag vocabulary "
+            "(4 format tags, 47 theme tags) for internal review — synthetic "
+            "ground truth, not a substitute for clinical validation."
+        )
+
     sections = [
-        "# Synthetic user journeys",
+        title,
         "",
-        "Generated against the definitive ORIGIN tag vocabulary "
-        "(4 format tags, 47 theme tags) for internal review — synthetic "
-        "ground truth, not a substitute for clinical validation.",
+        subtitle,
         "",
         f"Catalogue: {len(catalogue)} stories. Rounds per user: {N_ROUNDS}. "
         f"**Bold** marks the story the synthetic user opened each round.",
@@ -145,20 +171,28 @@ def main(output_path: str = "simulation/journeys_output.md", with_noise: bool = 
         "",
     ]
 
-    for persona in PERSONAS:
-        for i in range(USERS_PER_PERSONA):
+    total = 0
+    for persona, n_users in personas_to_run:
+        for i in range(n_users):
             user_id = f"{persona.name}-{i}"
             rounds = run_journey(engine, user_id, persona, rng, now, N_ROUNDS, noise=noise)
             sections.append(render_transcript(user_id, persona, rounds, engine))
+            total += 1
 
     report = "\n".join(sections)
     with open(output_path, "w") as f:
         f.write(report)
 
-    print(f"Wrote {len(PERSONAS) * USERS_PER_PERSONA} user journeys ({N_ROUNDS} rounds each) to {output_path}")
+    print(f"Wrote {total} user journeys ({N_ROUNDS} rounds each) to {output_path}")
 
 
 if __name__ == "__main__":
     with_noise = "--noise" in sys.argv
-    output = "simulation/journeys_output_noise.md" if with_noise else "simulation/journeys_output.md"
-    main(output_path=output, with_noise=with_noise)
+    robustness = "--robustness" in sys.argv
+    if robustness:
+        output = "simulation/journeys_robustness.md"
+    elif with_noise:
+        output = "simulation/journeys_output_noise.md"
+    else:
+        output = "simulation/journeys_output.md"
+    main(output_path=output, with_noise=with_noise, robustness=robustness)
