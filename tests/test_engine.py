@@ -190,6 +190,24 @@ def test_topical_prioritizes_stories_new_since_users_last_visit():
     assert "brand-new" in topical_picks
 
 
+def test_abort_triggers_fresh_batch_not_preservation():
+    # "Get me out of here" is a deliberate signal — the next call should
+    # return a fresh set, not the preserved batch.
+    engine = RecommenderEngine(make_catalogue(n=20))
+    user_id = "u1"
+    now = time.time()
+    first_recs = engine.get_recommendations(user_id, timestamp=now)
+    first_ids = {sid for sid, _ in first_recs}
+    aborted = first_recs[0][0]
+
+    engine.record_abort(user_id, aborted, timestamp=now + 5)
+
+    second_recs = engine.get_recommendations(user_id, timestamp=now + 10)
+    second_ids = {sid for sid, _ in second_recs}
+    # Must not return the preserved batch unchanged
+    assert second_ids != first_ids
+
+
 def test_batch_preserved_when_no_connectedness_answer():
     # If the user returns without having answered the connectedness question
     # (e.g. quick exit), the same batch should be returned minus any story

@@ -265,9 +265,14 @@ class RecommenderEngine:
         # Batch preservation: if the user hasn't answered a connectedness
         # question since their last visit, return the previous batch minus
         # any story they interacted with but didn't score (stopped early or
-        # aborted). This gives them a stable set — the app holds their place
-        # rather than reshuffling on a quick exit or interruption.
-        if not has_new_score and user.recent_batches:
+        # interrupted). This gives them a stable set — the app holds their
+        # place rather than reshuffling on a quick exit or interruption.
+        # Exception: if the user hit "Get me out of here" (abort) since their
+        # last visit, bypass preservation and generate a fresh set — abort is
+        # a deliberate signal that they want something different, distinct from
+        # an accidental or contextual early exit.
+        has_aborted_since_last_request = self._has_aborted_since_last_request(user)
+        if not has_new_score and not has_aborted_since_last_request and user.recent_batches:
             preserved = self._preserved_batch(user, seen)
             if len(preserved) == 6:
                 user.last_recommendation_request_at = timestamp
@@ -322,6 +327,15 @@ class RecommenderEngine:
             if not interacted_without_scoring:
                 preserved.append((story_id, self._infer_rec_type(story_id, user)))
         return preserved
+
+    def _has_aborted_since_last_request(self, user: UserModel) -> bool:
+        """True if the user hit 'Get me out of here' on any story since their
+        last GetRecommendations call. Distinguishes a deliberate exit from an
+        accidental or contextual early stop."""
+        for entry in user.story_history.values():
+            if entry.aborted and entry.timestamp > user.last_recommendation_request_at:
+                return True
+        return False
 
     def _infer_rec_type(self, story_id: str, user: UserModel) -> int:
         """Re-use the wildcard type as a neutral fallback for preserved slots
