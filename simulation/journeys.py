@@ -45,6 +45,21 @@ def run_journey(
             opened_story_id, opened_type = recs[0]
         story = engine.catalogue.get(opened_story_id)
 
+        # Consistent aborter: if the story contains a trigger tag, abort immediately
+        # regardless of noise — this is the deterministic behaviour we want to test.
+        if persona.abort_tags and story and persona.abort_tags & set(story.tags):
+            engine.record_engagement_progress(user_id, opened_story_id, progress_percentage=5.0, timestamp=timestamp)
+            engine.record_abort(user_id, opened_story_id, timestamp=timestamp)
+            rounds.append({
+                "round": round_idx + 1,
+                "recommendations": recs,
+                "opened": opened_story_id,
+                "opened_type": opened_type,
+                "score": None,
+                "interruption": InterruptionType.ABORT_LOW,
+            })
+            continue
+
         interruption = sample_interruption(rng, noise)
 
         if interruption == InterruptionType.NONE:

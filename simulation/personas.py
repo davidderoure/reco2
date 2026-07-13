@@ -22,6 +22,7 @@ class Persona:
     # Robustness overrides — None / "first" = normal behaviour
     selection: str = "first"    # "first" = always opens recs[0]; "random" = picks uniformly at random
     fixed_score: int | None = None  # if set, always returns this score (1-9) regardless of story tags
+    abort_tags: set[str] = field(default_factory=set)  # always aborts if opened story contains any of these tags
 
     def affinity_for(self, tag: str, themes: set[str], formats: set[str]) -> float:
         if tag in themes:
@@ -108,6 +109,16 @@ ROBUSTNESS_PERSONAS: list[Persona] = [
         name="always_middle_score",
         description="Always opens the first recommendation and returns score 5 — flat neutral response to all content.",
         fixed_score=5,
+    ),
+    Persona(
+        name="consistent_aborter",
+        description=(
+            "Opens the first recommendation but immediately aborts if it contains 'Being Judged', "
+            "'Feeling Lonely', or 'Hiding Self'; otherwise engages normally. "
+            "Tests that abort triggers a fresh batch and that avoidance logic (when implemented) "
+            "reduces exposure to these tags over time."
+        ),
+        abort_tags={"Being Judged", "Feeling Lonely", "Hiding Self"},
     ),
 ]
 

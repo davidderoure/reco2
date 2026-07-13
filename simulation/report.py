@@ -42,6 +42,19 @@ def collect_journey(
             opened_story_id, opened_type = recs[0]
         story = engine.catalogue.get(opened_story_id)
 
+        if persona.abort_tags and story and persona.abort_tags & set(story.tags):
+            engine.record_engagement_progress(user_id, opened_story_id, 5.0, timestamp=timestamp)
+            engine.record_abort(user_id, opened_story_id, timestamp=timestamp)
+            rounds.append({
+                "round": round_idx + 1,
+                "opened": opened_story_id,
+                "tags": story.tags if story else [],
+                "rec_type": {1: "content", 2: "collab", 3: "topical", 4: "wildcard"}.get(opened_type, "?"),
+                "score": None,
+                "interruption": "abort_low",
+            })
+            continue
+
         interruption = sample_interruption(rng, noise)
 
         if interruption == InterruptionType.NONE:
