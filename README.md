@@ -104,10 +104,12 @@ meetings and are implemented with the rationale in code comments
 8. **Abandoned engagement**: a story opened but closed without answering
    the question doesn't count as "seen" and doesn't affect affinity.
    `UserEngagementStoryProgress` updates `viewed_pct` in case a stop/abort
-   event is lost. If the user returns without having answered any
-   connectedness question, the previous batch is preserved (minus any story
-   they started but didn't score) rather than reshuffled — the app holds
-   their place across interruptions.
+   event is lost. Early exit and interruptions (stop with no score) preserve
+   the previous batch on the next visit — the app holds the user's place.
+   "Get me out of here" (abort) is treated differently: it bypasses
+   preservation and generates a fresh set, as it is a deliberate signal that
+   the user wants something different. Tag-based avoidance logic (longer-term
+   consequence of abort) is pending count/recency parameter decisions.
 9. **"New" stories during the trial**: the `topical` slot prioritizes
    stories added since *this user's own* last `GetRecommendations` call
    (`UserModel.last_recommendation_request_at`), not just globally
