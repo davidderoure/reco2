@@ -70,6 +70,14 @@ MIN_FRESH_PER_BATCH = 2
 # is too small to honour it.
 RECENT_BATCHES_TO_EXCLUDE = 2
 
+# Exploration widening: when a user has sustained high engagement (at least
+# HIGH_ENGAGEMENT_MIN_ROUNDS scored rounds with a mean Q1 score at or above
+# HIGH_ENGAGEMENT_SCORE_THRESHOLD on the 1-9 scale), widen exploration by
+# shifting one content-based slot to wildcard. Both thresholds are tunable
+# by the clinical team in response to early trial feedback.
+HIGH_ENGAGEMENT_MIN_ROUNDS = 5
+HIGH_ENGAGEMENT_SCORE_THRESHOLD = 7
+
 
 def _normalize_score(score_1_to_9: int) -> float:
     """Map a 1-9 connectedness score onto 0-1."""
@@ -370,6 +378,24 @@ class RecommenderEngine:
     def _seen_story_ids(self, user: UserModel) -> set[str]:
         return {sid for sid, e in user.story_history.items() if e.connectedness is not None}
 
+    def _is_high_engagement(self, user: UserModel) -> bool:
+        """True when the user has sustained high engagement: at least
+        HIGH_ENGAGEMENT_MIN_ROUNDS scored rounds with a mean Q1 score at or
+        above HIGH_ENGAGEMENT_SCORE_THRESHOLD (1-9 scale). When true,
+        _steady_state_recommendations widens exploration by shifting one
+        content-based slot to wildcard.
+        """
+        scored = [
+            e.connectedness
+            for e in user.story_history.values()
+            if e.connectedness is not None
+        ]
+        if len(scored) < HIGH_ENGAGEMENT_MIN_ROUNDS:
+            return False
+        mean_normalised = sum(scored) / len(scored)
+        mean_1_to_9 = mean_normalised * 8 + 1
+        return mean_1_to_9 >= HIGH_ENGAGEMENT_SCORE_THRESHOLD
+
     def _steady_state_recommendations(
         self, user: UserModel, seen: set[str], recently_recommended: set[str] | None = None
     ) -> list[tuple[str, int]]:
@@ -377,12 +403,22 @@ class RecommenderEngine:
         results: list[tuple[str, int]] = []
         chosen: set[str] = set()
 
+        # Widen exploration for users with sustained high engagement: shift
+        # one content-based slot to wildcard so the affinity model doesn't
+        # narrow recommendations into an ever-tighter positive-feedback loop.
+        if self._is_high_engagement(user):
+            slot_counts = dict(SLOT_COUNTS)
+            slot_counts[CONTENT_BASED] = max(0, slot_counts[CONTENT_BASED] - 1)
+            slot_counts[WILDCARD] = slot_counts[WILDCARD] + 1
+        else:
+            slot_counts = SLOT_COUNTS
+
         # Exclude recently recommended stories (N-batch window) from the
         # candidate pool so the same stories don't cycle back too quickly.
         # Falls back to including them if the catalogue is too small.
         excluded = seen | recently_recommended
 
-        for rec_type, count in SLOT_COUNTS.items():
+        for rec_type, count in slot_counts.items():
             strategy = self.strategies[rec_type]
             candidates = strategy.candidates(user, self.catalogue, self.population, excluded | chosen)
             picked = 0

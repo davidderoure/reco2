@@ -3,9 +3,12 @@ import time
 from recommender.catalogue import Catalogue
 from recommender.engine import (
     CONTENT_BASED,
+    HIGH_ENGAGEMENT_MIN_ROUNDS,
+    HIGH_ENGAGEMENT_SCORE_THRESHOLD,
     MIN_FRESH_PER_BATCH,
     REENGAGEMENT_RAMP_THRESHOLD,
     SLOT_COUNTS,
+    WILDCARD,
     RecommenderEngine,
 )
 from recommender.models import Story
@@ -280,3 +283,47 @@ def test_recent_batches_excluded_from_next_fresh_batch():
         batch3_ids = set(sid for sid, _ in engine.get_recommendations(user_id, timestamp=now + 4))
         overlap = batch3_ids & (batch1_ids | batch2_ids)
         assert len(overlap) == 0, f"Recent-batch stories leaked into batch3: {overlap}"
+
+
+def test_high_engagement_widens_exploration():
+    # After HIGH_ENGAGEMENT_MIN_ROUNDS scored rounds all at or above the
+    # threshold score, the engine should shift one content-based slot to
+    # wildcard in the next fresh batch.
+    engine = RecommenderEngine(make_catalogue(n=50))
+    user_id = "u1"
+    now = time.time()
+
+    # Drive enough high-scoring rounds to trigger the widening condition.
+    high_score = HIGH_ENGAGEMENT_SCORE_THRESHOLD  # on the 1-9 scale
+    for i in range(HIGH_ENGAGEMENT_MIN_ROUNDS):
+        recs = engine.get_recommendations(user_id, timestamp=now + i * 86400)
+        story_id = recs[0][0]
+        engine.record_answered_question(user_id, story_id, [high_score, 5, 5, 5], timestamp=now + i * 86400 + 1)
+
+    assert engine._is_high_engagement(engine.population[user_id])
+
+    # One more fresh batch — wildcard should have gained one extra slot.
+    # (content-based may still appear in topup slots when collaborative
+    # underproduces in small-population tests, so we only assert on wildcard.)
+    recs = engine.get_recommendations(user_id, timestamp=now + HIGH_ENGAGEMENT_MIN_ROUNDS * 86400)
+    wildcard_count = sum(1 for _, rec_type in recs if rec_type == WILDCARD)
+    assert wildcard_count == SLOT_COUNTS[WILDCARD] + 1
+
+
+def test_low_engagement_does_not_widen_exploration():
+    # Users with scores below the threshold should use the default slot counts.
+    engine = RecommenderEngine(make_catalogue(n=50))
+    user_id = "u1"
+    now = time.time()
+
+    low_score = HIGH_ENGAGEMENT_SCORE_THRESHOLD - 2
+    for i in range(HIGH_ENGAGEMENT_MIN_ROUNDS):
+        recs = engine.get_recommendations(user_id, timestamp=now + i * 86400)
+        story_id = recs[0][0]
+        engine.record_answered_question(user_id, story_id, [low_score, 5, 5, 5], timestamp=now + i * 86400 + 1)
+
+    assert not engine._is_high_engagement(engine.population[user_id])
+
+    recs = engine.get_recommendations(user_id, timestamp=now + HIGH_ENGAGEMENT_MIN_ROUNDS * 86400)
+    wildcard_count = sum(1 for _, rec_type in recs if rec_type == WILDCARD)
+    assert wildcard_count == SLOT_COUNTS[WILDCARD]
