@@ -59,7 +59,7 @@ there's no real persistence, just enough to exercise the RPCs.
 ## Testing
 
 ```bash
-pytest                              # unit + integration + concurrency + restart tests (38 tests)
+pytest                              # unit + integration + concurrency + restart tests (41 tests)
 python3 -m simulation.simulate      # synthetic population, response-time percentiles, recommender-vs-random effectiveness
 python3 -m simulation.journeys      # per-user round-by-round transcripts → simulation/journeys_output.md
 python3 -m simulation.journeys --noise       # same with 15% engagement interruption noise
@@ -73,10 +73,10 @@ The simulation uses the definitive ORIGIN tag vocabulary (4 format + 47 theme
 tags) and 6 named personas. Connectedness trends upward across rounds for 8/12
 synthetic users in the clean baseline — confirmed after each code drop.
 
-The `--robustness` flag runs 5 extreme-behaviour personas (always-first,
-always-random, fixed scores 1/5/9) to verify the recommender behaves sensibly
-under degenerate input. It is a sanity check against synthetic ground truth —
-not a substitute for testing against real trial data.
+The `--robustness` flag runs 6 extreme-behaviour personas (always-first,
+always-random, fixed scores 1/5/9, consistent-aborter) to verify the recommender
+behaves sensibly under degenerate input. It is a sanity check against synthetic
+ground truth — not a substitute for testing against real trial data.
 
 ## Design decisions
 
@@ -120,6 +120,37 @@ meetings and are implemented with the rationale in code comments
     → tag reinforced → same story always first) while keeping recommendations
     preference-led. Pool size is the tuning knob: smaller = faster
     personalisation, larger = more variety.
+11. **Exploration widening for sustained high engagement**: once a user has
+    scored at least `HIGH_ENGAGEMENT_MIN_ROUNDS` (N=5) rounds with a mean Q1
+    score at or above `HIGH_ENGAGEMENT_SCORE_THRESHOLD` (7/9), one
+    content-based slot is shifted to wildcard. This widens exploration as the
+    user's affinity profile matures, preventing it from narrowing into an
+    ever-tighter feedback loop. Both thresholds are named constants, tunable
+    in response to early trial feedback.
+
+## Trial API client
+
+A separate client in `trial/` fetches engagement data from the Trial API for
+ad hoc analysis and daily monitoring by the research team.
+
+```bash
+# Set credentials (obtain from the back-end dev)
+export TRIAL_CLIENT_ID=trial-api-m2m
+export TRIAL_CLIENT_SECRET=...
+
+# Last 7 days — summary to stdout
+python -m trial.fetch --days 7
+
+# Date range — CSV to file
+python -m trial.fetch --from 2025-01-01 --to 2025-01-31 --format csv --output jan.csv
+
+# Filter to specific participants — JSON
+python -m trial.fetch --days 30 --participants AB12-CD34 EF56-GH78 --format json
+```
+
+Authentication uses OAuth2 client credentials (M2M); tokens are refreshed
+automatically before expiry. The client, models, and CLI are in `trial/client.py`,
+`trial/models.py`, and `trial/fetch.py` respectively.
 
 ## Pending / coming in a future release
 
