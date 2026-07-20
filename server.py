@@ -42,12 +42,22 @@ class RecommenderServicer(recommender_pb2_grpc.RecommenderServiceServicer):
         self.story_client = story_client
 
     def UserAnsweredQuestion(self, request, context):
+        # Accept both the old proto (repeated int32 scores) and the new proto
+        # (score_1 required + score_2/3/4 optional). Remove the old path once
+        # gRPC stubs are regenerated from the updated proto.
+        if hasattr(request, "score_1"):
+            scores = [request.score_1]
+            for field in ("score_2", "score_3", "score_4"):
+                val = getattr(request, field, None)
+                scores.append(val if val else None)
+        else:
+            scores = list(request.scores)
         print(f"[EVENT] User {request.user_id} answered questions for story {request.story_id} "
-              f"with scores {list(request.scores)}")
+              f"with scores {scores}")
         self.engine.record_answered_question(
             request.user_id,
             request.story_id,
-            list(request.scores),
+            scores,
             timestamp=_to_epoch(request.timestamp),
         )
         self._persist(request.user_id)

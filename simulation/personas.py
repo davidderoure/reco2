@@ -21,7 +21,7 @@ class Persona:
     format_weights: dict[str, float] = field(default_factory=dict)  # 0-1, default 0.5 (no preference)
     # Robustness overrides — None / "first" = normal behaviour
     selection: str = "first"    # "first" = always opens recs[0]; "random" = picks uniformly at random
-    fixed_score: int | None = None  # if set, always returns this score (1-9) regardless of story tags
+    fixed_score: int | None = None  # if set, always returns this score (1-5) regardless of story tags
     abort_tags: set[str] = field(default_factory=set)  # always aborts if opened story contains any of these tags
 
     def affinity_for(self, tag: str, themes: set[str], formats: set[str]) -> float:
@@ -97,18 +97,18 @@ ROBUSTNESS_PERSONAS: list[Persona] = [
     ),
     Persona(
         name="always_low_score",
-        description="Always opens the first recommendation and returns score 1 — chronically low connectedness regardless of content.",
+        description="Always opens the first recommendation and returns score 1 — chronically low connectedness regardless of content (min on 1-5 scale).",
         fixed_score=1,
     ),
     Persona(
         name="always_high_score",
-        description="Always opens the first recommendation and returns score 9 — everything connects, no discrimination.",
-        fixed_score=9,
+        description="Always opens the first recommendation and returns score 5 — everything connects, no discrimination (max on 1-5 scale).",
+        fixed_score=5,
     ),
     Persona(
         name="always_middle_score",
-        description="Always opens the first recommendation and returns score 5 — flat neutral response to all content.",
-        fixed_score=5,
+        description="Always opens the first recommendation and returns score 3 — flat neutral response to all content (mid on 1-5 scale).",
+        fixed_score=3,
     ),
     Persona(
         name="consistent_aborter",
@@ -124,7 +124,7 @@ ROBUSTNESS_PERSONAS: list[Persona] = [
 
 
 def simulated_connectedness(story: Story, persona: Persona, rng: random.Random) -> int:
-    """Synthetic connectedness score (1-9) for a story given a hidden persona."""
+    """Synthetic connectedness score (1-5) for a story given a hidden persona."""
     themes = set(THEME_TAGS)
     formats = set(story.tags) - themes
     relevant_themes = [t for t in story.tags if t in themes]
@@ -140,6 +140,6 @@ def simulated_connectedness(story: Story, persona: Persona, rng: random.Random) 
             format_component = persona.affinity_for(tag, themes, formats)
 
     # Theme dominates; format is a secondary modifier.
-    base = (0.8 * theme_component + 0.2 * format_component) * 9
-    noisy = base + rng.gauss(0, 0.8)
-    return max(1, min(9, round(noisy)))
+    base = (0.8 * theme_component + 0.2 * format_component) * 5
+    noisy = base + rng.gauss(0, 0.5)
+    return max(1, min(5, round(noisy)))

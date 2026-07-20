@@ -28,7 +28,7 @@ def test_new_story_can_be_recommended_after_appearing_mid_trial():
     user_id = "u1"
     now = time.time()
     for i in range(5):
-        engine.record_answered_question(user_id, f"s{i}", [8, 5, 5, 5], timestamp=now)
+        engine.record_answered_question(user_id, f"s{i}", [4, 3, 3, 3], timestamp=now)
 
     # A story that didn't exist when the user started — simulates the
     # catalogue refresh loop picking up something added mid-trial.
@@ -51,7 +51,7 @@ def test_brand_new_tag_value_does_not_break_anything():
     user_id = "u1"
     now = time.time()
 
-    engine.record_answered_question(user_id, "novel", [9, 5, 5, 5], timestamp=now)
+    engine.record_answered_question(user_id, "novel", [5, 3, 3, 3], timestamp=now)
 
     user = engine.population[user_id]
     assert user.tag_affinity["never-seen-before-tag"] == 1.0  # score 9/9 normalized
@@ -76,7 +76,7 @@ def test_tag_affinity_is_stale_until_the_next_triggering_event():
     user_id = "u1"
     now = time.time()
 
-    engine.record_answered_question(user_id, "s0", [9, 5, 5, 5], timestamp=now)
+    engine.record_answered_question(user_id, "s0", [5, 3, 3, 3], timestamp=now)
     user = engine.population[user_id]
     assert user.tag_affinity["unique-tag"] == 1.0
 
@@ -99,7 +99,7 @@ def test_tag_removed_from_a_story_no_longer_contributes_once_recomputed():
     user_id = "u1"
     now = time.time()
 
-    engine.record_answered_question(user_id, "only-source", [9, 5, 5, 5], timestamp=now)
+    engine.record_answered_question(user_id, "only-source", [5, 3, 3, 3], timestamp=now)
     user = engine.population[user_id]
     assert "unique-tag" in user.tag_affinity
 
@@ -107,7 +107,7 @@ def test_tag_removed_from_a_story_no_longer_contributes_once_recomputed():
     engine.catalogue.upsert(Story(story_id="only-source", title="Only source", tags=["different-tag"]))
 
     # Trigger a recompute via another event for this user.
-    engine.record_answered_question(user_id, "other", [5, 5, 5, 5], timestamp=now + 1)
+    engine.record_answered_question(user_id, "other", [3, 3, 3, 3], timestamp=now + 1)
 
     assert "unique-tag" not in user.tag_affinity
     assert "different-tag" in user.tag_affinity

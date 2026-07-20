@@ -57,8 +57,11 @@ enum EngagementType {
 message UserAnsweredQuestionRequest {
   string user_id = 1;
   string story_id = 2;
-  repeated int32 scores = 3; // Exactly 4 scores, range 1–9
+  int32 score_1 = 3;           // required, range 1–5
   google.protobuf.Timestamp timestamp = 4;
+  optional int32 score_2 = 5;  // optional, range 1–5
+  optional int32 score_3 = 6;  // optional, range 1–5
+  optional int32 score_4 = 7;  // optional, range 1–5
 }
 
 message UserProvidedMoodRequest {

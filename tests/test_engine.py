@@ -42,7 +42,7 @@ def test_steady_state_returns_six_unique_after_history():
     user_id = "u1"
     now = time.time()
     for i in range(5):
-        engine.record_answered_question(user_id, f"s{i}", [8, 5, 5, 5], timestamp=now)
+        engine.record_answered_question(user_id, f"s{i}", [4, 3, 3, 3], timestamp=now)
 
     recs = engine.get_recommendations(user_id)
     assert len(recs) == 6
@@ -62,7 +62,7 @@ def test_reengagement_ramps_in_as_unread_pool_shrinks():
     now = time.time()
     rated = [f"s{i}" for i in range(n - 2)]  # leave only 2 unread
     for story_id in rated:
-        engine.record_answered_question(user_id, story_id, [9, 5, 5, 5], timestamp=now)
+        engine.record_answered_question(user_id, story_id, [5, 3, 3, 3], timestamp=now)
 
     recs = engine.get_recommendations(user_id)
     assert len(recs) == 6
@@ -78,7 +78,7 @@ def test_exhaustion_falls_back_to_reengagement():
     user_id = "u1"
     now = time.time()
     for i in range(6):
-        engine.record_answered_question(user_id, f"s{i}", [7, 5, 5, 5], timestamp=now)
+        engine.record_answered_question(user_id, f"s{i}", [4, 3, 3, 3], timestamp=now)
 
     recs = engine.get_recommendations(user_id)
     assert len(recs) == 6
@@ -98,7 +98,7 @@ def test_minimum_freshness_policy_allows_repeats_but_requires_some_fresh():
     now = time.time()
     first_ids = {sid for sid, _ in engine.get_recommendations(user_id, timestamp=now)}
     first_story = next(iter(first_ids))
-    engine.record_answered_question(user_id, first_story, [7, 5, 5, 5], timestamp=now + 1)
+    engine.record_answered_question(user_id, first_story, [4, 3, 3, 3], timestamp=now + 1)
     second_ids = {sid for sid, _ in engine.get_recommendations(user_id, timestamp=now + 2)}
 
     fresh_in_second = second_ids - first_ids
@@ -126,7 +126,7 @@ def test_user_with_history_is_not_stuck_in_cold_start_when_catalogue_has_no_tags
     user_id = "u1"
     now = time.time()
     for i in range(5):
-        engine.record_answered_question(user_id, f"s{i}", [8, 5, 5, 5], timestamp=now)
+        engine.record_answered_question(user_id, f"s{i}", [4, 3, 3, 3], timestamp=now)
 
     user = engine.population[user_id]
     assert user.tag_affinity == {}  # confirms the no-tags premise
@@ -178,7 +178,7 @@ def test_topical_prioritizes_stories_new_since_users_last_visit():
     # Answer a question so the next call generates fresh recommendations
     # (batch preservation would otherwise return the same batch).
     engine.record_answered_question(
-        user_id, first_recs[0][0], [7, 5, 5, 5], timestamp=t0 + 1
+        user_id, first_recs[0][0], [4, 3, 3, 3], timestamp=t0 + 1
     )
 
     # A story added well after the user's last visit, but with a lower
@@ -256,7 +256,7 @@ def test_fresh_batch_after_connectedness_answer():
     first_ids = set(sid for sid, _ in first_recs)
     answered_story = next(iter(first_ids))
 
-    engine.record_answered_question(user_id, answered_story, [7, 5, 5, 5], timestamp=now + 1)
+    engine.record_answered_question(user_id, answered_story, [4, 3, 3, 3], timestamp=now + 1)
 
     second_recs = engine.get_recommendations(user_id, timestamp=now + 2)
     second_ids = set(sid for sid, _ in second_recs)
@@ -273,10 +273,10 @@ def test_recent_batches_excluded_from_next_fresh_batch():
     now = time.time()
 
     batch1_ids = set(sid for sid, _ in engine.get_recommendations(user_id, timestamp=now))
-    engine.record_answered_question(user_id, next(iter(batch1_ids)), [7, 5, 5, 5], timestamp=now + 1)
+    engine.record_answered_question(user_id, next(iter(batch1_ids)), [4, 3, 3, 3], timestamp=now + 1)
 
     batch2_ids = set(sid for sid, _ in engine.get_recommendations(user_id, timestamp=now + 2))
-    engine.record_answered_question(user_id, next(iter(batch2_ids)), [7, 5, 5, 5], timestamp=now + 3)
+    engine.record_answered_question(user_id, next(iter(batch2_ids)), [4, 3, 3, 3], timestamp=now + 3)
 
     # Both batch1 and batch2 should be excluded if RECENT_BATCHES_TO_EXCLUDE >= 2
     if RECENT_BATCHES_TO_EXCLUDE >= 2:

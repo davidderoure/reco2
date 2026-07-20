@@ -41,7 +41,7 @@ def simulate_and_serialise(engine: RecommenderEngine, user_id: str, n_rounds: in
         ts = now + r * 86400
         recs = engine.get_recommendations(user_id, timestamp=ts)
         story_id = recs[0][0]
-        engine.record_answered_question(user_id, story_id, [7, 5, 5, 5], timestamp=ts)
+        engine.record_answered_question(user_id, story_id, [4, 3, 3, 3], timestamp=ts)
     return engine.population[user_id].to_json()
 
 
@@ -130,7 +130,7 @@ def test_restart_preserves_recent_batches_exclusion():
     fresh_engine = restart_with_blob(catalogue, user_id, blob)
     # Fresh batch must score a connectedness answer first (has_new_score=True from reload? No —
     # has_new_score resets to False on restart, so we need to answer first)
-    fresh_engine.record_answered_question(user_id, recent_before[0], [7, 5, 5, 5], timestamp=now + 3 * 86400)
+    fresh_engine.record_answered_question(user_id, recent_before[0], [4, 3, 3, 3], timestamp=now + 3 * 86400)
     recs = fresh_engine.get_recommendations(user_id, timestamp=now + 4 * 86400)
     rec_ids = {sid for sid, _ in recs}
 
@@ -149,7 +149,7 @@ def test_restart_preserves_batch_preservation_state():
 
     # Round 1: score a story to build history
     recs1 = engine.get_recommendations(user_id, timestamp=now)
-    engine.record_answered_question(user_id, recs1[0][0], [7, 5, 5, 5], timestamp=now)
+    engine.record_answered_question(user_id, recs1[0][0], [4, 3, 3, 3], timestamp=now)
 
     # Round 2: get a batch but don't score — quick exit
     recs2 = engine.get_recommendations(user_id, timestamp=now + 86400)

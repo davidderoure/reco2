@@ -76,7 +76,7 @@ def test_concurrent_mixed_events_and_recommendations():
             recs = engine.get_recommendations(user_id, timestamp=ts)
             assert len(recs) == 6
             story_id = recs[0][0]
-            engine.record_answered_question(user_id, story_id, [7, 5, 5, 5], timestamp=ts)
+            engine.record_answered_question(user_id, story_id, [4, 3, 3, 3], timestamp=ts)
             engine.record_engagement_stop(user_id, story_id, 100.0, timestamp=ts)
             if round_idx == 2:
                 engine.record_bookmark(user_id, recs[1][0], timestamp=ts)

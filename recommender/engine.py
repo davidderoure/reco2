@@ -76,12 +76,12 @@ RECENT_BATCHES_TO_EXCLUDE = 2
 # shifting one content-based slot to wildcard. Both thresholds are tunable
 # by the clinical team in response to early trial feedback.
 HIGH_ENGAGEMENT_MIN_ROUNDS = 5
-HIGH_ENGAGEMENT_SCORE_THRESHOLD = 7
+HIGH_ENGAGEMENT_SCORE_THRESHOLD = 4  # on the 1-5 scale
 
 
-def _normalize_score(score_1_to_9: int) -> float:
-    """Map a 1-9 connectedness score onto 0-1."""
-    return (score_1_to_9 - 1) / 8.0
+def _normalize_score(score_1_to_5: int) -> float:
+    """Map a 1-5 connectedness score onto 0-1."""
+    return (score_1_to_5 - 1) / 4.0
 
 
 class RecommenderEngine:
@@ -393,8 +393,8 @@ class RecommenderEngine:
         if len(scored) < HIGH_ENGAGEMENT_MIN_ROUNDS:
             return False
         mean_normalised = sum(scored) / len(scored)
-        mean_1_to_9 = mean_normalised * 8 + 1
-        return mean_1_to_9 >= HIGH_ENGAGEMENT_SCORE_THRESHOLD
+        mean_1_to_5 = mean_normalised * 4 + 1
+        return mean_1_to_5 >= HIGH_ENGAGEMENT_SCORE_THRESHOLD
 
     def _steady_state_recommendations(
         self, user: UserModel, seen: set[str], recently_recommended: set[str] | None = None
