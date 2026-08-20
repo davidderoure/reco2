@@ -14,6 +14,7 @@ import threading
 import time
 
 from .catalogue import Catalogue
+from .embeddings import EmbeddingIndex
 from .models import (
     COLLABORATIVE,
     CONTENT_BASED,
@@ -102,6 +103,17 @@ class RecommenderEngine:
             TOPICAL: TopicalStrategy(boosted_story_ids),
             WILDCARD: WildcardStrategy(rng=random.Random(rng.randint(0, 2**32) if rng else None)),
         }
+
+    def load_embeddings(self, index: EmbeddingIndex) -> None:
+        """Activate embedding-based similarity in the content-based strategy.
+
+        Call this after construction to opt in. When not called, the engine
+        uses pure tag-affinity scoring (the original behaviour).
+        """
+        self.strategies[CONTENT_BASED] = ContentBasedStrategy(
+            rng=self.strategies[CONTENT_BASED].rng,
+            embedding_index=index,
+        )
 
     # -- population / persistence -----------------------------------------
 

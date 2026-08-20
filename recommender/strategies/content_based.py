@@ -14,18 +14,28 @@ import random
 import threading
 
 from ..catalogue import Catalogue
+from ..embeddings import EmbeddingIndex
 from ..models import CONTENT_BASED, UserModel
 from .base import Strategy
 
 POOL_SIZE = 6
 
+# Weight given to embedding similarity vs tag affinity when both are available.
+# 0.0 = pure tag affinity (old behaviour); 1.0 = pure embedding similarity.
+EMBEDDING_WEIGHT = 0.5
+
 
 class ContentBasedStrategy(Strategy):
     code = CONTENT_BASED
 
-    def __init__(self, rng: random.Random | None = None) -> None:
+    def __init__(
+        self,
+        rng: random.Random | None = None,
+        embedding_index: EmbeddingIndex | None = None,
+    ) -> None:
         self.rng = rng or random.Random()
         self._rng_lock = threading.Lock()
+        self._embeddings = embedding_index
 
     def candidates(
         self,
@@ -34,17 +44,39 @@ class ContentBasedStrategy(Strategy):
         population: dict[str, UserModel],
         excluded: set[str],
     ) -> list[str]:
-        if not user.tag_affinity:
+        has_engaged = any(
+            e.connectedness is not None and e.connectedness > 0.5
+            for e in user.story_history.values()
+        )
+        if not user.tag_affinity and not (self._embeddings is not None and has_engaged):
             return []  # cold start: nothing to go on, let other strategies cover this user
+
+        # Reference stories: those the user has engaged with and scored positively.
+        engaged_ids = [
+            sid for sid, entry in user.story_history.items()
+            if entry.connectedness is not None and entry.connectedness > 0.5
+        ]
 
         scored: list[tuple[float, str]] = []
         for story in catalogue.all_stories():
             if story.story_id in excluded:
                 continue
-            if not story.tags:
-                continue
-            score = sum(user.tag_affinity.get(tag, 0.0) for tag in story.tags) / len(story.tags)
-            if score > 0:
+
+            # Tag-affinity score (existing behaviour).
+            if story.tags:
+                tag_score = sum(user.tag_affinity.get(tag, 0.0) for tag in story.tags) / len(story.tags)
+            else:
+                tag_score = 0.0
+
+            # Embedding similarity score (blended in when index is available).
+            if self._embeddings is not None and engaged_ids:
+                emb_score = self._embeddings.mean_similarity(story.story_id, engaged_ids)
+                score = (1 - EMBEDDING_WEIGHT) * tag_score + EMBEDDING_WEIGHT * emb_score
+            else:
+                emb_score = 0.0
+                score = tag_score
+
+            if score > 0 or emb_score > 0:
                 scored.append((score, story.story_id))
 
         scored.sort(reverse=True)

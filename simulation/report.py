@@ -16,6 +16,8 @@ import time
 
 from .noise import InterruptionType, NO_NOISE, NoiseConfig, high_progress, low_progress, sample_interruption
 from .personas import PERSONAS, ROBUSTNESS_PERSONAS, simulated_connectedness
+from .real_catalogue import FORMAT_TAGS as REAL_FORMAT_TAGS, load_real_catalogue
+from .real_personas import REAL_PERSONAS, REAL_ROBUSTNESS_PERSONAS
 from .synthetic_catalogue import FORMAT_TAGS, THEME_TAGS, generate_catalogue
 from recommender.engine import RecommenderEngine
 
@@ -31,6 +33,7 @@ def collect_journey(
     now: float,
     n_rounds: int,
     noise: NoiseConfig = NO_NOISE,
+    format_tags: set[str] | None = None,
 ) -> list[dict]:
     rounds = []
     for round_idx in range(n_rounds):
@@ -61,7 +64,7 @@ def collect_journey(
             score = (
                 persona.fixed_score
                 if persona.fixed_score is not None
-                else simulated_connectedness(story, persona, rng)
+                else simulated_connectedness(story, persona, rng, format_tags=format_tags)
             )
             engine.record_answered_question(user_id, opened_story_id, [score, 5, 5, 5], timestamp=timestamp)
             engine.record_engagement_stop(user_id, opened_story_id, 100.0, timestamp=timestamp)
@@ -309,25 +312,33 @@ Object.entries(byPersona).forEach(([persona, data]) => {{
 </html>"""
 
 
-def main(with_noise: bool = False, robustness: bool = False) -> None:
+def main(with_noise: bool = False, robustness: bool = False, real: bool = False,
+         real_catalogue_path: str | None = None) -> None:
     noise = NoiseConfig() if with_noise else NO_NOISE
     now = time.time()
-    catalogue = generate_catalogue(n_stories=120, seed=1, now=now)
+
+    if real:
+        catalogue = load_real_catalogue(real_catalogue_path)
+        fmt_tags = REAL_FORMAT_TAGS
+        print(f"Using real catalogue: {len(catalogue)} stories")
+    else:
+        catalogue = generate_catalogue(n_stories=120, seed=1, now=now)
+        fmt_tags = None
+
     engine = RecommenderEngine(catalogue)
     rng = random.Random(42)
-    themes = set(THEME_TAGS)
 
     if robustness:
-        personas_to_run = [(p, 1) for p in ROBUSTNESS_PERSONAS]
+        personas_to_run = [(p, 1) for p in (REAL_ROBUSTNESS_PERSONAS if real else ROBUSTNESS_PERSONAS)]
     else:
-        personas_to_run = [(p, USERS_PER_PERSONA) for p in PERSONAS]
+        personas_to_run = [(p, USERS_PER_PERSONA) for p in (REAL_PERSONAS if real else PERSONAS)]
 
     all_users = []
     for persona, n_users in personas_to_run:
         for i in range(n_users):
             user_id = f"{persona.name}-{i}"
             rounds, final_affinity = collect_journey(
-                engine, user_id, persona, rng, now, N_ROUNDS, noise=noise
+                engine, user_id, persona, rng, now, N_ROUNDS, noise=noise, format_tags=fmt_tags
             )
             all_users.append({
                 "user_id": user_id,
@@ -336,19 +347,20 @@ def main(with_noise: bool = False, robustness: bool = False) -> None:
                 "rounds": rounds,
                 "final_affinity": {k: round(v, 3) for k, v in final_affinity.items()},
                 "true_theme_prefs": {
-                    tag: persona.theme_weights.get(tag, 0.3)
-                    for tag in themes
-                    if persona.theme_weights.get(tag, 0.3) != 0.3
+                    tag: w
+                    for tag, w in persona.theme_weights.items()
+                    if w != 0.3
                 },
             })
 
+    prefix = "real_" if real else ""
     if robustness:
         suffix = "_robustness"
     elif with_noise:
         suffix = "_noise"
     else:
         suffix = ""
-    path = f"simulation/journeys_report{suffix}.html"
+    path = f"simulation/journeys_{prefix}report{suffix}.html"
     with open(path, "w") as f:
         f.write(_html(all_users, with_noise, len(catalogue)))
     print(f"Wrote {path}")
@@ -357,4 +369,6 @@ def main(with_noise: bool = False, robustness: bool = False) -> None:
 if __name__ == "__main__":
     with_noise = "--noise" in sys.argv
     robustness = "--robustness" in sys.argv
-    main(with_noise=with_noise, robustness=robustness)
+    real = "--real" in sys.argv
+    catalogue_path = next((sys.argv[i + 1] for i, a in enumerate(sys.argv) if a == "--catalogue" and i + 1 < len(sys.argv)), None)
+    main(with_noise=with_noise, robustness=robustness, real=real, real_catalogue_path=catalogue_path)

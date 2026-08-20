@@ -2,3 +2,4 @@ pytest
 grpcio
 grpcio-tools
 requests
+openai  # used only by scripts/generate_embeddings.py

@@ -20,6 +20,8 @@ import time
 from recommender.engine import RecommenderEngine
 from .noise import InterruptionType, NO_NOISE, NoiseConfig, high_progress, low_progress, sample_interruption
 from .personas import PERSONAS, ROBUSTNESS_PERSONAS, simulated_connectedness
+from .real_catalogue import FORMAT_TAGS as REAL_FORMAT_TAGS, load_real_catalogue
+from .real_personas import REAL_PERSONAS, REAL_ROBUSTNESS_PERSONAS
 from .synthetic_catalogue import generate_catalogue
 
 USERS_PER_PERSONA = 2
@@ -34,6 +36,7 @@ def run_journey(
     now: float,
     n_rounds: int,
     noise: NoiseConfig = NO_NOISE,
+    format_tags: set[str] | None = None,
 ) -> list[dict]:
     rounds = []
     for round_idx in range(n_rounds):
@@ -66,7 +69,7 @@ def run_journey(
             score = (
                 persona.fixed_score
                 if persona.fixed_score is not None
-                else simulated_connectedness(story, persona, rng)
+                else simulated_connectedness(story, persona, rng, format_tags=format_tags)
             )
             engine.record_answered_question(user_id, opened_story_id, [score, 5, 5, 5], timestamp=timestamp)
             engine.record_engagement_stop(user_id, opened_story_id, progress_percentage=100.0, timestamp=timestamp)
@@ -126,7 +129,7 @@ def render_transcript(user_id: str, persona, rounds: list[dict], engine: Recomme
             marker = "**" if story_id == r["opened"] else ""
             tags = ", ".join(story.tags) if story else "?"
             rec_cells.append(f"{marker}{story_id} [{REC_TYPE_NAMES[rec_type]}]: {tags}{marker}")
-        score_cell = f"{r['score']}/9" if r["score"] is not None else "—"
+        score_cell = f"{r['score']}/5" if r["score"] is not None else "—"
         interruption_label = INTERRUPTION_LABELS[r["interruption"]]
         lines.append(
             f"| {r['round']} | {'<br>'.join(rec_cells)} | "
@@ -140,10 +143,20 @@ def main(
     output_path: str = "simulation/journeys_output.md",
     with_noise: bool = False,
     robustness: bool = False,
+    real: bool = False,
+    real_catalogue_path: str | None = None,
 ) -> None:
     noise = NoiseConfig() if with_noise else NO_NOISE
     now = time.time()
-    catalogue = generate_catalogue(n_stories=120, seed=1, now=now)
+
+    if real:
+        catalogue = load_real_catalogue(real_catalogue_path)
+        fmt_tags = REAL_FORMAT_TAGS
+        print(f"Using real catalogue: {len(catalogue)} stories")
+    else:
+        catalogue = generate_catalogue(n_stories=120, seed=1, now=now)
+        fmt_tags = None
+
     engine = RecommenderEngine(catalogue)
     rng = random.Random(42)
 
@@ -158,7 +171,7 @@ def main(
     )
 
     if robustness:
-        personas_to_run = [(p, 1) for p in ROBUSTNESS_PERSONAS]
+        personas_to_run = [(p, 1) for p in (REAL_ROBUSTNESS_PERSONAS if real else ROBUSTNESS_PERSONAS)]
         title = "# Robustness journeys — extreme user behaviours"
         subtitle = (
             "Each persona exercises an extreme edge case "
@@ -166,12 +179,11 @@ def main(
             "recommender behaves reasonably under adversarial or degenerate input."
         )
     else:
-        personas_to_run = [(p, USERS_PER_PERSONA) for p in PERSONAS]
+        personas_to_run = [(p, USERS_PER_PERSONA) for p in (REAL_PERSONAS if real else PERSONAS)]
         title = "# Synthetic user journeys"
         subtitle = (
-            "Generated against the definitive ORIGIN tag vocabulary "
-            "(4 format tags, 47 theme tags) for internal review — synthetic "
-            "ground truth, not a substitute for clinical validation."
+            f"Generated against the {'real ORIGIN catalogue' if real else 'synthetic ORIGIN tag vocabulary'} "
+            "for internal review — synthetic ground truth, not a substitute for clinical validation."
         )
 
     sections = [
@@ -190,7 +202,7 @@ def main(
     for persona, n_users in personas_to_run:
         for i in range(n_users):
             user_id = f"{persona.name}-{i}"
-            rounds = run_journey(engine, user_id, persona, rng, now, N_ROUNDS, noise=noise)
+            rounds = run_journey(engine, user_id, persona, rng, now, N_ROUNDS, noise=noise, format_tags=fmt_tags)
             sections.append(render_transcript(user_id, persona, rounds, engine))
             total += 1
 
@@ -204,10 +216,13 @@ def main(
 if __name__ == "__main__":
     with_noise = "--noise" in sys.argv
     robustness = "--robustness" in sys.argv
+    real = "--real" in sys.argv
+    catalogue_path = next((sys.argv[i + 1] for i, a in enumerate(sys.argv) if a == "--catalogue" and i + 1 < len(sys.argv)), None)
+    prefix = "real_" if real else ""
     if robustness:
-        output = "simulation/journeys_robustness.md"
+        output = f"simulation/journeys_{prefix}robustness.md"
     elif with_noise:
-        output = "simulation/journeys_output_noise.md"
+        output = f"simulation/journeys_{prefix}output_noise.md"
     else:
-        output = "simulation/journeys_output.md"
-    main(output_path=output, with_noise=with_noise, robustness=robustness)
+        output = f"simulation/journeys_{prefix}output.md"
+    main(output_path=output, with_noise=with_noise, robustness=robustness, real=real, real_catalogue_path=catalogue_path)

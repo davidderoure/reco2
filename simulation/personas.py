@@ -123,19 +123,31 @@ ROBUSTNESS_PERSONAS: list[Persona] = [
 ]
 
 
-def simulated_connectedness(story: Story, persona: Persona, rng: random.Random) -> int:
-    """Synthetic connectedness score (1-5) for a story given a hidden persona."""
-    themes = set(THEME_TAGS)
-    formats = set(story.tags) - themes
-    relevant_themes = [t for t in story.tags if t in themes]
+def simulated_connectedness(
+    story: Story,
+    persona: Persona,
+    rng: random.Random,
+    format_tags: set[str] | None = None,
+) -> int:
+    """Synthetic connectedness score (1-5) for a story given a hidden persona.
 
+    format_tags: set of tag names treated as format signals. Defaults to the
+    synthetic catalogue's FORMAT_TAGS. Pass the real catalogue's format tags
+    (Written, Audio, Visual, Video) when running with --real.
+    """
+    from .synthetic_catalogue import FORMAT_TAGS as SYNTHETIC_FORMAT_TAGS
+    _format_tags = format_tags if format_tags is not None else SYNTHETIC_FORMAT_TAGS
+    themes = {t for t in story.tags if t not in _format_tags}
+    formats = {t for t in story.tags if t in _format_tags}
+
+    relevant_themes = list(themes)
     if not relevant_themes:
         theme_component = 0.3
     else:
         theme_component = sum(persona.affinity_for(t, themes, formats) for t in relevant_themes) / len(relevant_themes)
 
     format_component = 0.5
-    for tag in story.tags:
+    for tag in formats:
         if tag in persona.format_weights:
             format_component = persona.affinity_for(tag, themes, formats)
 
