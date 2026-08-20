@@ -31,6 +31,23 @@ API_URL = "https://origin-api.imagineear.com/api/Trial/engagement_data"
 
 ORIGIN_ID_RE = re.compile(r"^[A-Z0-9]{4}-[A-Z0-9]{4}$")
 
+_REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+
+def _load_dotenv() -> None:
+    """Load a .env file from the repo root into os.environ (no-op if absent)."""
+    path = os.path.join(_REPO_ROOT, ".env")
+    if not os.path.exists(path):
+        return
+    with open(path) as f:
+        for line in f:
+            line = line.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            key, _, value = line.partition("=")
+            os.environ.setdefault(key.strip(), value.strip())
+
+
 
 class TrialAPIError(Exception):
     """Raised when the Trial API returns an error response."""
@@ -48,7 +65,12 @@ class TrialClient:
 
     @classmethod
     def from_env(cls) -> "TrialClient":
-        """Construct from TRIAL_CLIENT_ID and TRIAL_CLIENT_SECRET env vars."""
+        """Construct from TRIAL_CLIENT_ID and TRIAL_CLIENT_SECRET env vars.
+
+        If either variable is missing, looks for a .env file in the repo root
+        and loads it before checking again.
+        """
+        _load_dotenv()
         client_id = os.environ.get("TRIAL_CLIENT_ID", "")
         client_secret = os.environ.get("TRIAL_CLIENT_SECRET", "")
         if not client_id or not client_secret:
