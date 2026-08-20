@@ -53,7 +53,7 @@ class CollaborativeStrategy(Strategy):
             return []  # nothing to compare on yet
 
         neighbours: list[tuple[float, UserModel]] = []
-        for other_id, other in population.items():
+        for other_id, other in list(population.items()):
             if other_id == user.user_id:
                 continue
             other_ratings = _ratings(other)

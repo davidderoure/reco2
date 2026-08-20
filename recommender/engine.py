@@ -245,7 +245,7 @@ class RecommenderEngine:
                 tag_weighted_sum[tag] = tag_weighted_sum.get(tag, 0.0) + w * score
                 tag_weight_total[tag] = tag_weight_total.get(tag, 0.0) + w
 
-        for story_id, entry in user.story_history.items():
+        for story_id, entry in list(user.story_history.items()):
             if entry.connectedness is None:
                 continue
             add(story_id, entry.connectedness, entry.timestamp)
