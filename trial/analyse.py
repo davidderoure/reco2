@@ -39,6 +39,11 @@ SESSION_GAP_SECONDS = 3600
 ABORT_PCT_THRESHOLD = 20.0
 ABORT_MIN_OPENERS = 2
 
+# Reversion to cold-start after this many days away is treated as natural
+# decay (connectedness scores half-life = 14 days, so 30 days ≈ 4 half-lives,
+# leaving <7% signal) rather than a state-loss bug.
+LAPSE_GAP_DAYS = 30
+
 
 def _parse_date(s: str) -> datetime:
     try:
@@ -242,35 +247,64 @@ def analyse(
     # ------------------------------------------------------------------ #
     section("6. Potential state-loss detection")
     lines.append("  Flags participants whose session pattern reverts to cold-start")
-    lines.append("  after at least one personalised session — a possible sign of")
-    lines.append("  recommender state not persisting across restarts.")
+    lines.append("  after at least one personalised session.")
+    lines.append("")
+    lines.append("  Two distinct causes look identical in the session pattern:")
+    lines.append(f"  • State loss  — reversion within {LAPSE_GAP_DAYS} days of last personalised")
+    lines.append("    session: recommender state may not have persisted across a restart.")
+    lines.append(f"  • Natural lapse — reversion after >{LAPSE_GAP_DAYS} days away: connectedness")
+    lines.append("    scores decay to near-zero so the model returns to cold-start")
+    lines.append("    behaviour. This is expected and correct.")
 
-    flagged_state = []
+    state_loss = []
+    natural_lapse = []
+
     for p in participants:
         sessions = _sessions(p.records)
         if len(sessions) < 3:
             continue
-        patterns = []
-        for sess in sessions:
-            pers_in_sess = sum(1 for r in sess if r.recommender_type_name in PERSONALISED_TYPES)
-            patterns.append(pers_in_sess / len(sess) >= 0.5)
-        # Look for P followed later by C
-        had_personalised = False
-        reverted = False
-        for is_pers in patterns:
-            if is_pers:
-                had_personalised = True
-            elif had_personalised:
-                reverted = True
-                break
-        if reverted:
-            flagged_state.append(p.origin_id)
 
-    if flagged_state:
-        lines.append(f"\n  ⚠  Possible state loss: {', '.join(flagged_state)}")
-        lines.append("  Recommend manual review of session timeline for these participants.")
+        # Build (is_personalised, last_timestamp) per session
+        session_info = []
+        for sess in sessions:
+            pers = sum(1 for r in sess if r.recommender_type_name in PERSONALISED_TYPES)
+            last_ts = max(r.time_start for r in sess)
+            session_info.append((pers / len(sess) >= 0.5, last_ts))
+
+        # Find first reversion: P followed by C
+        last_pers_ts = None
+        reverted = False
+        reversion_gap_days = None
+        for is_pers, ts in session_info:
+            if is_pers:
+                last_pers_ts = ts
+            elif last_pers_ts is not None:
+                reverted = True
+                reversion_gap_days = (ts - last_pers_ts).total_seconds() / 86400
+                break
+
+        if reverted:
+            if reversion_gap_days is not None and reversion_gap_days > LAPSE_GAP_DAYS:
+                natural_lapse.append((p.origin_id, reversion_gap_days))
+            else:
+                state_loss.append((p.origin_id, reversion_gap_days))
+
+    if state_loss:
+        lines.append(f"\n  ⚠  Possible state loss ({len(state_loss)} participant(s)):")
+        for origin_id, gap in state_loss:
+            gap_str = f"{gap:.0f}d gap" if gap is not None else "unknown gap"
+            lines.append(f"    {origin_id}  ({gap_str} between last personalised and reversion)")
+        lines.append("  Recommend manual review of session timeline.")
     else:
-        lines.append("\n  No reversion patterns detected.")
+        lines.append("\n  No state-loss patterns detected.")
+
+    if natural_lapse:
+        lines.append(f"\n  ℹ  Natural lapse ({len(natural_lapse)} participant(s)) — "
+                     f"reversion after >{LAPSE_GAP_DAYS}d away, expected behaviour:")
+        for origin_id, gap in natural_lapse:
+            lines.append(f"    {origin_id}  ({gap:.0f}d since last personalised session)")
+    else:
+        lines.append(f"  No natural-lapse patterns detected (no reversion after >{LAPSE_GAP_DAYS}d gap).")
 
     return "\n".join(lines)
 
