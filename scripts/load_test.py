@@ -200,6 +200,79 @@ def print_stats(label: str, latencies: list[float], wall: float, n_threads: int)
 
 
 # ---------------------------------------------------------------------------
+# Spike scenario
+# ---------------------------------------------------------------------------
+
+# Time compression for the spike scenario. In production the dev's test uses
+# a 20s ramp and ~120s video watch period. We compress both so the scenario
+# completes in under a minute, while preserving the simultaneous-finish burst
+# and the wave-on-wave history growth that causes cumulative latency creep.
+SPIKE_RAMP_SECONDS = 1.0   # stagger arrivals over this window (was 20s)
+SPIKE_WATCH_SECONDS = 3.0  # simulated story watch time between waves (was 120s)
+
+
+def scenario_spike(
+    engine: RecommenderEngine,
+    user_ids: list[str],
+    all_story_ids: list[str],
+    n_waves: int,
+    rng: random.Random,
+) -> list[tuple[int, list[float], float]]:
+    """Simulate the video-finish burst pattern.
+
+    Each wave:
+      1. Ramp: each user thread sleeps a random fraction of SPIKE_RAMP_SECONDS
+         before calling get_recommendations() — models staggered app opens.
+      2. Watch: all threads sleep SPIKE_WATCH_SECONDS — models the story.
+      3. Burst: all threads wake simultaneously, call record_answered_question
+         + get_recommendations(). The burst latency is what we measure.
+
+    Returns a list of (wave_num, latencies, burst_wall_seconds).
+    """
+    n = len(user_ids)
+    results = []
+
+    # Assign each user a fixed story to "watch" this wave (rotated per wave)
+    wave_rng = random.Random(rng.randint(0, 2**32))
+
+    for wave in range(1, n_waves + 1):
+        story_assignments = [wave_rng.choice(all_story_ids) for _ in range(n)]
+        burst_latencies: dict[int, float] = {}
+        barrier_ready = threading.Barrier(n)   # synchronise burst start
+        ts = time.time()
+
+        def user_wave(idx: int, uid: str, sid: str) -> None:
+            # 1. Ramp: staggered arrival
+            time.sleep(wave_rng.random() * SPIKE_RAMP_SECONDS)
+            engine.get_recommendations(uid)
+
+            # 2. Watch: simulate reading/watching the story
+            time.sleep(SPIKE_WATCH_SECONDS)
+
+            # 3. Burst: all users finish simultaneously
+            barrier_ready.wait()
+            engine.record_answered_question(uid, sid, [wave_rng.randint(1, 5)], timestamp=ts)
+            t0 = time.perf_counter()
+            engine.get_recommendations(uid)
+            burst_latencies[idx] = (time.perf_counter() - t0) * 1000
+
+        threads = [
+            threading.Thread(target=user_wave, args=(i, uid, sid))
+            for i, (uid, sid) in enumerate(zip(user_ids, story_assignments))
+        ]
+        burst_start = time.perf_counter()
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+        burst_wall = time.perf_counter() - burst_start - SPIKE_RAMP_SECONDS - SPIKE_WATCH_SECONDS
+
+        results.append((wave, list(burst_latencies.values()), max(burst_wall, 0.001)))
+
+    return results
+
+
+# ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
 
@@ -273,6 +346,30 @@ def main(
     lats3, wall3 = run_concurrent(s3, n_concurrent, 1)
     ok3 = print_stats("Results", lats3, wall3, n_concurrent)
     all_pass = all_pass and ok3
+
+    # --- Scenario 4: video-finish spike ---
+    print(f"\nScenario 4: video-finish spike")
+    print(f"  Simulates {n_concurrent} users watching a story, all finishing simultaneously.")
+    print(f"  Each wave: staggered start (ramp) → watch period → simultaneous finish burst.")
+    print(f"  Histories deepen each wave; collaborative cost should grow wave-on-wave.")
+    print(f"  (time compressed: {SPIKE_WATCH_SECONDS}s watch, {SPIKE_RAMP_SECONDS}s ramp)")
+
+    spike_user_ids = [f"spike-{i:04d}" for i in range(n_concurrent)]
+    spike_wave_stats = scenario_spike(engine, spike_user_ids, all_story_ids, n_rounds, rng)
+
+    print(f"\n  {'Wave':>5}  {'p50':>8}  {'p95':>8}  {'p99':>8}  {'max':>8}  {'burst_wall':>12}")
+    print(f"  {'─'*5}  {'─'*8}  {'─'*8}  {'─'*8}  {'─'*8}  {'─'*12}")
+    wave_pass = True
+    for wave_num, lats, burst_wall in spike_wave_stats:
+        p50 = percentile(lats, 50)
+        p95 = percentile(lats, 95)
+        p99 = percentile(lats, 99)
+        mx = max(lats)
+        status = "✓" if p95 < BUDGET_MS else "✗"
+        print(f"  {wave_num:>5}  {p50:>7.1f}ms  {p95:>7.1f}ms  {p99:>7.1f}ms  {mx:>7.1f}ms  {burst_wall:>9.2f}s  {status}")
+        if p95 >= BUDGET_MS:
+            wave_pass = False
+    all_pass = all_pass and wave_pass
 
     # --- Correctness spot-check ---
     print(f"\nCorrectness spot-check (no duplicate recommendations)...")
