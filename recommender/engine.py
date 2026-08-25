@@ -79,6 +79,14 @@ RECENT_BATCHES_TO_EXCLUDE = 2
 HIGH_ENGAGEMENT_MIN_ROUNDS = 5
 HIGH_ENGAGEMENT_SCORE_THRESHOLD = 4  # on the 1-5 scale
 
+# Maximum number of story_history entries to retain per user. None = unlimited
+# (default). Set to a positive integer to cap memory use and reduce collaborative
+# strategy cost. When trimming, the most recent entries by timestamp are kept;
+# tag_affinity is recomputed from the survivors, so signal from evicted entries
+# is already baked into the current affinity values before they are dropped.
+# A safe floor given current engagement rates is ~50 (covers ~2 months of use).
+MAX_HISTORY_SIZE: int | None = None
+
 
 def _normalize_score(score_1_to_5: int) -> float:
     """Map a 1-5 connectedness score onto 0-1."""
@@ -146,6 +154,7 @@ class RecommenderEngine:
         entry.timestamp = timestamp
         entry.secondary_scores = list(scores[1:4])
 
+        self._trim_history(user)
         self._recompute_tag_affinity(user)
         user.has_new_score_since_last_request = True
         user.last_updated = timestamp
@@ -225,6 +234,33 @@ class RecommenderEngine:
         # Explicitly not used by recommender logic per spec; pass-through
         # for trial-data storage happens outside this engine.
         self.get_or_create_user(user_id)
+
+    def _trim_history(self, user: UserModel) -> None:
+        """Drop oldest story_history entries when MAX_HISTORY_SIZE is set.
+
+        Called after record_answered_question so the cap is enforced before
+        tag_affinity is recomputed. Entries without a connectedness score (view
+        or abort only) are evicted first; scored entries are then sorted by
+        timestamp and the oldest are removed.
+        """
+        if MAX_HISTORY_SIZE is None or len(user.story_history) <= MAX_HISTORY_SIZE:
+            return
+        # Evict unscored entries first (they carry no affinity signal)
+        unscored = [sid for sid, e in user.story_history.items() if e.connectedness is None]
+        for sid in unscored:
+            if len(user.story_history) <= MAX_HISTORY_SIZE:
+                break
+            del user.story_history[sid]
+        if len(user.story_history) <= MAX_HISTORY_SIZE:
+            return
+        # Then evict oldest scored entries
+        by_age = sorted(
+            ((e.timestamp, sid) for sid, e in user.story_history.items() if e.connectedness is not None),
+        )
+        for _, sid in by_age:
+            if len(user.story_history) <= MAX_HISTORY_SIZE:
+                break
+            del user.story_history[sid]
 
     def _recompute_tag_affinity(self, user: UserModel) -> None:
         """Rebuild tag_affinity from story_history (and bookmarks), with

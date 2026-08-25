@@ -327,3 +327,97 @@ def test_low_engagement_does_not_widen_exploration():
     recs = engine.get_recommendations(user_id, timestamp=now + HIGH_ENGAGEMENT_MIN_ROUNDS * 86400)
     wildcard_count = sum(1 for _, rec_type in recs if rec_type == WILDCARD)
     assert wildcard_count == SLOT_COUNTS[WILDCARD]
+
+
+# ---------------------------------------------------------------------------
+# Forgetting / history trimming
+# ---------------------------------------------------------------------------
+
+def test_trim_history_disabled_by_default():
+    """With MAX_HISTORY_SIZE=None, history grows without bound."""
+    import recommender.engine as engine_mod
+    original = engine_mod.MAX_HISTORY_SIZE
+    try:
+        engine_mod.MAX_HISTORY_SIZE = None
+        engine = RecommenderEngine(make_catalogue(60))
+        for i in range(50):
+            engine.record_answered_question("u1", f"s{i}", [3], timestamp=float(i))
+        user = engine.get_or_create_user("u1")
+        assert len(user.story_history) == 50
+    finally:
+        engine_mod.MAX_HISTORY_SIZE = original
+
+
+def test_trim_history_caps_at_max():
+    """With MAX_HISTORY_SIZE=10, history never exceeds the cap."""
+    import recommender.engine as engine_mod
+    original = engine_mod.MAX_HISTORY_SIZE
+    try:
+        engine_mod.MAX_HISTORY_SIZE = 10
+        engine = RecommenderEngine(make_catalogue(60))
+        for i in range(30):
+            engine.record_answered_question("u1", f"s{i}", [3], timestamp=float(i))
+        user = engine.get_or_create_user("u1")
+        assert len(user.story_history) <= 10
+    finally:
+        engine_mod.MAX_HISTORY_SIZE = original
+
+
+def test_trim_history_keeps_most_recent():
+    """Oldest scored entries are evicted first."""
+    import recommender.engine as engine_mod
+    original = engine_mod.MAX_HISTORY_SIZE
+    try:
+        engine_mod.MAX_HISTORY_SIZE = 5
+        engine = RecommenderEngine(make_catalogue(60))
+        for i in range(10):
+            engine.record_answered_question("u1", f"s{i}", [4], timestamp=float(i))
+        user = engine.get_or_create_user("u1")
+        remaining = set(user.story_history.keys())
+        # s5-s9 are the 5 most recent; s0-s4 should be evicted
+        assert "s9" in remaining
+        assert "s8" in remaining
+        assert "s0" not in remaining
+    finally:
+        engine_mod.MAX_HISTORY_SIZE = original
+
+
+def test_trim_history_evicts_unscored_first():
+    """Unscored (view/abort only) entries are evicted before scored ones."""
+    import recommender.engine as engine_mod
+    original = engine_mod.MAX_HISTORY_SIZE
+    try:
+        engine_mod.MAX_HISTORY_SIZE = 5
+        engine = RecommenderEngine(make_catalogue(60))
+        # 5 scored entries
+        for i in range(5):
+            engine.record_answered_question("u1", f"s{i}", [5], timestamp=float(i))
+        # 1 unscored (view only)
+        engine.record_engagement_stop("u1", "s5", 50.0, timestamp=10.0)
+        # Adding one more scored entry should evict the unscored one first
+        engine.record_answered_question("u1", "s6", [5], timestamp=11.0)
+        user = engine.get_or_create_user("u1")
+        assert len(user.story_history) <= 5
+        assert "s5" not in user.story_history  # unscored evicted first
+        # s0 is now the oldest scored entry and gets evicted to make room for s6
+        assert "s0" not in user.story_history
+        assert "s6" in user.story_history
+    finally:
+        engine_mod.MAX_HISTORY_SIZE = original
+
+
+def test_trim_history_recommendations_still_work():
+    """Recommendations remain valid after history trimming."""
+    import recommender.engine as engine_mod
+    original = engine_mod.MAX_HISTORY_SIZE
+    try:
+        engine_mod.MAX_HISTORY_SIZE = 5
+        engine = RecommenderEngine(make_catalogue(60))
+        for i in range(20):
+            engine.record_answered_question("u1", f"s{i}", [4], timestamp=float(i))
+        recs = engine.get_recommendations("u1")
+        assert len(recs) == 6
+        ids = [sid for sid, _ in recs]
+        assert len(set(ids)) == 6
+    finally:
+        engine_mod.MAX_HISTORY_SIZE = original
