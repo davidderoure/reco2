@@ -129,7 +129,9 @@ class RecommenderServicer(recommender_pb2_grpc.RecommenderServiceServicer):
             request.progress_percentage,
             timestamp=_to_epoch(request.timestamp),
         )
-        self._persist(request.user_id)
+        # No persist: stop only updates viewed_pct, which is analysis data and
+        # does not affect recommendations. State is persisted on the next
+        # GetRecommendations or UserAnsweredQuestion call.
         return empty_pb2.Empty()
 
     def UserEngagementStoryAbort(self, request, context):
@@ -141,7 +143,10 @@ class RecommenderServicer(recommender_pb2_grpc.RecommenderServiceServicer):
             request.story_id,
             timestamp=_to_epoch(request.timestamp),
         )
-        self._persist(request.user_id)
+        # No persist: abort flag is captured in-memory and will be persisted on
+        # the next GetRecommendations call, which checks it to decide whether to
+        # bypass batch preservation. The window where it could be lost (service
+        # restart between abort and next GetRecommendations) is acceptable.
         return empty_pb2.Empty()
 
     def GetRecommendations(self, request, context):
@@ -150,19 +155,24 @@ class RecommenderServicer(recommender_pb2_grpc.RecommenderServiceServicer):
             recommender_pb2.RecommendationResult(story_id=story_id, recommender_type=rec_type)
             for story_id, rec_type in recs
         ]
-        self._persist(request.user_id)
+        # Persist after returning the response so the DB write does not sit
+        # inside the 500ms recommendation budget. Fire-and-forget on a daemon
+        # thread; a failure here logs but does not affect the caller.
+        self._persist_async(request.user_id)
         return recommender_pb2.GetRecommendationsResponse(recommendations=recommendations)
 
     def _persist(self, user_id: str) -> None:
-        """Push this user's updated model back to the C# StoryService.
+        """Push this user's updated model back to the C# StoryService (synchronous)."""
+        try:
+            user = self.engine.get_or_create_user(user_id)
+            self.story_client.save_user_model(user)
+        except Exception as exc:  # noqa: BLE001
+            print(f"[WARN] Failed to persist state for {user_id}: {exc}")
 
-        Persisting synchronously and per-event is simple and correct, but
-        chatty — revisit (e.g. batch/async) once we see real trial traffic
-        volume; the 500ms budget is on GetRecommendations specifically, and
-        this call sits outside that one.
-        """
-        user = self.engine.get_or_create_user(user_id)
-        self.story_client.save_user_model(user)
+    def _persist_async(self, user_id: str) -> None:
+        """Persist on a background daemon thread — does not block the caller."""
+        t = threading.Thread(target=self._persist, args=(user_id,), daemon=True)
+        t.start()
 
 
 def _to_epoch(timestamp) -> float | None:
