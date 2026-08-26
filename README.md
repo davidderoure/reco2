@@ -59,7 +59,7 @@ there's no real persistence, just enough to exercise the RPCs.
 ## Testing
 
 ```bash
-pytest                              # unit + integration + concurrency + restart tests (41 tests)
+pytest                              # unit + integration + concurrency + restart tests (63 tests)
 python3 -m simulation.simulate      # synthetic population, response-time percentiles, recommender-vs-random effectiveness
 python3 -m simulation.journeys      # per-user round-by-round transcripts → simulation/journeys_output.md
 python3 -m simulation.journeys --noise       # same with 15% engagement interruption noise
@@ -133,24 +133,40 @@ meetings and are implemented with the rationale in code comments
 A separate client in `trial/` fetches engagement data from the Trial API for
 ad hoc analysis and daily monitoring by the research team.
 
-```bash
-# Set credentials (obtain from the back-end dev)
-export TRIAL_CLIENT_ID=trial-api-m2m
-export TRIAL_CLIENT_SECRET=...
+Credentials can be set via environment variables or a `.env` file in the repo
+root (gitignored — obtain values from the back-end dev):
 
-# Last 7 days — summary to stdout
+```
+TRIAL_CLIENT_ID=trial-api-m2m
+TRIAL_CLIENT_SECRET=...
+```
+
+Authentication uses OAuth2 client credentials (M2M); tokens are refreshed
+automatically before expiry.
+
+```bash
+# Fetch raw data — last 7 days to stdout
 python -m trial.fetch --days 7
 
 # Date range — CSV to file
 python -m trial.fetch --from 2025-01-01 --to 2025-01-31 --format csv --output jan.csv
 
-# Filter to specific participants — JSON
-python -m trial.fetch --days 30 --participants AB12-CD34 EF56-GH78 --format json
+# Population-level analysis report
+python -m trial.analyse --days 30
+python -m trial.analyse --days 30 --output report.txt
+
+# Per-participant timeline (ASCII, TRE-compatible)
+python -m trial.timeline --days 30
+python -m trial.timeline --days 30 --participants AB12-CD34
+python -m trial.timeline --days 30 --html timeline.html   # richer local view
 ```
 
-Authentication uses OAuth2 client credentials (M2M); tokens are refreshed
-automatically before expiry. The client, models, and CLI are in `trial/client.py`,
-`trial/models.py`, and `trial/fetch.py` respectively.
+The analysis report covers: recommender type distribution, story popularity,
+high-abort stories, per-participant Q1 trend, personalisation pattern, and
+potential state-loss detection (reversion to cold-start distinguished from
+natural lapse after >30 days away). The timeline tool is designed for terminal
+use in a TRE (Trusted Research Environment) with an optional `--html` output
+for local review before deployment there.
 
 ## Pending / coming in a future release
 
@@ -181,6 +197,13 @@ automatically before expiry. The client, models, and CLI are in `trial/client.py
   proper fix is a proto change (server-streaming `LoadUserModel`) coordinated
   with the back-end dev. A budget regression test is in
   `tests/test_concurrent.py::test_user_model_json_size_within_grpc_budget`.
-- **Persistence is synchronous and per-event** (`server.py`'s `_persist`)
-  — simple and correct, but chatty; worth revisiting once real traffic
-  volume is known.
+- **`GetRecommendations` persist is async but other events are synchronous**
+  (`server.py`): `SaveUserModel` for `GetRecommendations` fires on a background
+  thread after the response is returned. `UserAnsweredQuestion` and bookmarks
+  remain synchronous. `UserEngagementStoryStop` and `UserEngagementStoryAbort`
+  do not persist (state is saved on the next `GetRecommendations`). Switching
+  all event handlers to async (via `grpc.aio`) would reduce thread-pool
+  pressure further under burst load — worth revisiting if the trial grows.
+- **History trimming is available but off** (`MAX_HISTORY_SIZE = None` in
+  `engine.py`): set to a positive integer (e.g. 50) to cap collaborative
+  strategy cost as user histories deepen. Off for the trial; one line to enable.
