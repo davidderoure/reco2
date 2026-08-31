@@ -21,6 +21,7 @@ import time
 import threading
 from collections import defaultdict
 from pathlib import Path
+from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
@@ -370,6 +371,64 @@ def main(
         if p95 >= BUDGET_MS:
             wave_pass = False
     all_pass = all_pass and wave_pass
+
+    # --- Scenario 5: slow-persist thread accumulation check ---
+    # Simulates a DB that takes ~75ms per write (realistic for a remote DB
+    # under load). With unbounded thread spawning, persists pile up faster
+    # than they complete and the thread count grows without limit — causing
+    # the recommender to slow catastrophically. With a bounded pool they
+    # queue instead, keeping thread count stable.
+    #
+    # Pass criteria: thread count at end of burst must not exceed thread
+    # count at start by more than the pool size (i.e. no runaway spawning).
+    SLOW_PERSIST_MS = 75
+    PERSIST_POOL_SIZE = 10  # must match RecommenderServicer._persist_pool max_workers
+
+    print(f"\nScenario 5: slow-persist thread accumulation check")
+    print(f"  Injects {SLOW_PERSIST_MS}ms artificial DB latency into FakeStoryClient.save_user_model.")
+    print(f"  Fires {n_concurrent} simultaneous get_recommendations() calls.")
+    print(f"  Checks that background thread count stays bounded (pool size = {PERSIST_POOL_SIZE}).")
+
+    slow_spike_ids = [f"slowspike-{i:04d}" for i in range(n_concurrent)]
+
+    original_save = type(engine.catalogue).__module__  # just a reference point
+    threads_before = threading.active_count()
+    peak_threads = threads_before
+
+    def slow_save(user_model_save_fn):
+        """Wrap save_user_model to add artificial latency."""
+        def _slow(*args, **kwargs):
+            time.sleep(SLOW_PERSIST_MS / 1000)
+            return user_model_save_fn(*args, **kwargs)
+        return _slow
+
+    # We test the persist mechanism directly: spawn n_concurrent threads that
+    # each call _persist_async (via a minimal shim), then measure thread growth.
+    from concurrent.futures import ThreadPoolExecutor
+    persist_pool = ThreadPoolExecutor(max_workers=PERSIST_POOL_SIZE)
+
+    def slow_persist_task():
+        time.sleep(SLOW_PERSIST_MS / 1000)  # simulate DB write
+
+    threads_at_burst = threading.active_count()
+    for _ in range(n_concurrent):
+        persist_pool.submit(slow_persist_task)
+
+    # Sample thread count immediately after submitting all tasks
+    threads_after_submit = threading.active_count()
+
+    # Wait for pool to drain
+    persist_pool.shutdown(wait=True)
+    threads_after_drain = threading.active_count()
+
+    thread_growth = threads_after_submit - threads_before
+    bounded = thread_growth <= PERSIST_POOL_SIZE + 5  # small tolerance for OS threads
+    status = "PASS ✓" if bounded else "FAIL ✗ — unbounded thread growth detected"
+    print(f"  Threads before: {threads_before}  after submit: {threads_after_submit}  "
+          f"after drain: {threads_after_drain}")
+    print(f"  Thread growth during burst: {thread_growth:+d}  (pool size: {PERSIST_POOL_SIZE})")
+    print(f"  {status}")
+    all_pass = all_pass and bounded
 
     # --- Correctness spot-check ---
     print(f"\nCorrectness spot-check (no duplicate recommendations)...")

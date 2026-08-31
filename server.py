@@ -40,6 +40,9 @@ class RecommenderServicer(recommender_pb2_grpc.RecommenderServiceServicer):
     def __init__(self, engine: RecommenderEngine, story_client: StoryClient) -> None:
         self.engine = engine
         self.story_client = story_client
+        # Bounded pool for async persists — prevents unbounded thread spawning
+        # under sustained load where persists complete slower than calls arrive.
+        self._persist_pool = futures.ThreadPoolExecutor(max_workers=10)
 
     def UserAnsweredQuestion(self, request, context):
         # Accept both the old proto (repeated int32 scores) and the new proto
@@ -170,9 +173,13 @@ class RecommenderServicer(recommender_pb2_grpc.RecommenderServiceServicer):
             print(f"[WARN] Failed to persist state for {user_id}: {exc}")
 
     def _persist_async(self, user_id: str) -> None:
-        """Persist on a background daemon thread — does not block the caller."""
-        t = threading.Thread(target=self._persist, args=(user_id,), daemon=True)
-        t.start()
+        """Submit a persist to the bounded background pool — does not block the caller.
+
+        Uses a fixed-size pool rather than spawning a new thread per call so
+        that persists cannot accumulate without limit under sustained load where
+        DB writes complete slower than calls arrive.
+        """
+        self._persist_pool.submit(self._persist, user_id)
 
 
 def _to_epoch(timestamp) -> float | None:
