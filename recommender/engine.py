@@ -85,7 +85,7 @@ HIGH_ENGAGEMENT_SCORE_THRESHOLD = 4  # on the 1-5 scale
 # tag_affinity is recomputed from the survivors, so signal from evicted entries
 # is already baked into the current affinity values before they are dropped.
 # A safe floor given current engagement rates is ~50 (covers ~2 months of use).
-MAX_HISTORY_SIZE: int | None = None
+MAX_HISTORY_SIZE: int | None = 70
 
 
 def _normalize_score(score_1_to_5: int) -> float:
