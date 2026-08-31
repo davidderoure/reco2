@@ -197,13 +197,16 @@ for local review before deployment there.
   proper fix is a proto change (server-streaming `LoadUserModel`) coordinated
   with the back-end dev. A budget regression test is in
   `tests/test_concurrent.py::test_user_model_json_size_within_grpc_budget`.
-- **`GetRecommendations` persist is async but other events are synchronous**
-  (`server.py`): `SaveUserModel` for `GetRecommendations` fires on a background
-  thread after the response is returned. `UserAnsweredQuestion` and bookmarks
-  remain synchronous. `UserEngagementStoryStop` and `UserEngagementStoryAbort`
-  do not persist (state is saved on the next `GetRecommendations`). Switching
-  all event handlers to async (via `grpc.aio`) would reduce thread-pool
-  pressure further under burst load — worth revisiting if the trial grows.
-- **History trimming is available but off** (`MAX_HISTORY_SIZE = None` in
-  `engine.py`): set to a positive integer (e.g. 50) to cap collaborative
-  strategy cost as user histories deepen. Off for the trial; one line to enable.
+- **`GetRecommendations` persist is async; Stop and Abort do not persist**
+  (`server.py`): `SaveUserModel` for `GetRecommendations` fires on a bounded
+  background pool (`ThreadPoolExecutor(max_workers=10)`) after the response is
+  returned. `UserAnsweredQuestion` and bookmarks remain synchronous.
+  `UserEngagementStoryStop` and `UserEngagementStoryAbort` do not persist
+  (state is saved on the next `GetRecommendations`). Switching all event
+  handlers to async (via `grpc.aio`) would reduce thread-pool pressure further
+  under burst load — worth revisiting if the trial grows.
+- **History trimming is on** (`MAX_HISTORY_SIZE = 70` in `engine.py`):
+  calibrated for the 200-story catalogue expected at go-live (confirmed by load
+  testing). Oldest entries are evicted after each scored answer; tag affinity is
+  recomputed from survivors so no signal is lost. Adjust the constant if the
+  catalogue or engagement patterns change significantly.
