@@ -129,19 +129,30 @@ class RecommenderEngine:
         with self._population_lock:
             self.population = {u.user_id: u for u in users}
 
-    def get_or_create_user(self, user_id: str) -> UserModel:
+    def get_or_create_user(self, user_id: str, user_type: int = 0) -> UserModel:
         with self._population_lock:
             if user_id not in self.population:
-                self.population[user_id] = UserModel(user_id=user_id)
+                self.population[user_id] = UserModel(user_id=user_id, user_type=user_type)
+            elif user_type != 0:
+                # Accept a non-default user_type from any event so the group
+                # is set as soon as the first typed request arrives, even if
+                # the model was loaded before the type was known.
+                self.population[user_id].user_type = user_type
             return self.population[user_id]
+
+    def _same_group_population(self, user_type: int) -> dict[str, UserModel]:
+        """Return the subset of population with the same user_type."""
+        with self._population_lock:
+            return {uid: u for uid, u in self.population.items() if u.user_type == user_type}
 
     # -- event handlers -----------------------------------------------------
 
     def record_answered_question(
-        self, user_id: str, story_id: str, scores: list[int], timestamp: float | None = None
+        self, user_id: str, story_id: str, scores: list[int], timestamp: float | None = None,
+        user_type: int = 0,
     ) -> None:
         timestamp = timestamp if timestamp is not None else time.time()
-        user = self.get_or_create_user(user_id)
+        user = self.get_or_create_user(user_id, user_type=user_type)
 
         # Open question #5, decided at the 2026-06-22 design meeting:
         # scores[0] (compulsory) is the connectedness signal used by all
@@ -165,9 +176,10 @@ class RecommenderEngine:
         story_id: str,
         progress_percentage: float,
         timestamp: float | None = None,
+        user_type: int = 0,
     ) -> None:
         timestamp = timestamp if timestamp is not None else time.time()
-        user = self.get_or_create_user(user_id)
+        user = self.get_or_create_user(user_id, user_type=user_type)
         entry = user.story_history.setdefault(story_id, StoryHistoryEntry())
         entry.viewed_pct = progress_percentage
         entry.timestamp = timestamp
@@ -308,10 +320,10 @@ class RecommenderEngine:
 
     # -- recommendations ------------------------------------------------
 
-    def get_recommendations(self, user_id: str, timestamp: float | None = None) -> list[tuple[str, int]]:
+    def get_recommendations(self, user_id: str, timestamp: float | None = None, user_type: int = 0) -> list[tuple[str, int]]:
         """Returns up to 6 (story_id, recommender_type) pairs."""
         timestamp = timestamp if timestamp is not None else time.time()
-        user = self.get_or_create_user(user_id)
+        user = self.get_or_create_user(user_id, user_type=user_type)
 
         seen = self._seen_story_ids(user)
         previously_recommended = set(user.recommended_story_ids)
@@ -327,6 +339,10 @@ class RecommenderEngine:
         # last visit, bypass preservation and generate a fresh set — abort is
         # a deliberate signal that they want something different, distinct from
         # an accidental or contextual early exit.
+        # Scope collaborative filtering and cold-start popularity to the same
+        # user group so test-account ratings don't influence trial recommendations.
+        group_population = self._same_group_population(user.user_type)
+
         has_aborted_since_last_request = self._has_aborted_since_last_request(user)
         if not has_new_score and not has_aborted_since_last_request and user.recent_batches:
             preserved = self._preserved_batch(user, seen)
@@ -339,7 +355,7 @@ class RecommenderEngine:
             preserved_ids = {sid for sid, _ in preserved}
             removed_ids = set(user.recent_batches[0]) - preserved_ids
             topup_excluded = seen | preserved_ids | removed_ids
-            topup = self._topup_for_preserved(user, seen, topup_excluded, 6 - len(preserved))
+            topup = self._topup_for_preserved(user, seen, topup_excluded, 6 - len(preserved), group_population)
             results = preserved + topup
             self._finalise_batch(user, results, timestamp)
             return results
@@ -357,14 +373,14 @@ class RecommenderEngine:
         is_cold_start = not seen
 
         if is_cold_start:
-            results = self._cold_start_recommendations(user, seen)
+            results = self._cold_start_recommendations(user, seen, group_population)
         else:
-            results = self._steady_state_recommendations(user, seen, recently_recommended)
+            results = self._steady_state_recommendations(user, seen, recently_recommended, group_population)
 
         if len(results) < 6:
             results = self._fill_with_reengagement(user, seen, results)
 
-        results = self._ensure_minimum_freshness(user, seen, previously_recommended, results)
+        results = self._ensure_minimum_freshness(user, seen, previously_recommended, results, group_population)
 
         self._finalise_batch(user, results, timestamp)
         return results
@@ -399,16 +415,18 @@ class RecommenderEngine:
         return WILDCARD
 
     def _topup_for_preserved(
-        self, user: UserModel, seen: set[str], excluded: set[str], needed: int
+        self, user: UserModel, seen: set[str], excluded: set[str], needed: int,
+        population: dict[str, UserModel] | None = None,
     ) -> list[tuple[str, int]]:
         """Fill remaining slots after batch preservation with fresh picks."""
+        population = population if population is not None else self.population
         results = []
         chosen = set(excluded)
         for rec_type in [CONTENT_BASED, TOPICAL, WILDCARD, COLLABORATIVE]:
             if len(results) >= needed:
                 break
             strategy = self.strategies[rec_type]
-            for story_id in strategy.candidates(user, self.catalogue, self.population, chosen):
+            for story_id in strategy.candidates(user, self.catalogue, population, chosen):
                 if len(results) >= needed:
                     break
                 results.append((story_id, rec_type))
@@ -445,9 +463,11 @@ class RecommenderEngine:
         return mean_1_to_5 >= HIGH_ENGAGEMENT_SCORE_THRESHOLD
 
     def _steady_state_recommendations(
-        self, user: UserModel, seen: set[str], recently_recommended: set[str] | None = None
+        self, user: UserModel, seen: set[str], recently_recommended: set[str] | None = None,
+        population: dict[str, UserModel] | None = None,
     ) -> list[tuple[str, int]]:
         recently_recommended = recently_recommended or set()
+        population = population if population is not None else self.population
         results: list[tuple[str, int]] = []
         chosen: set[str] = set()
 
@@ -468,7 +488,7 @@ class RecommenderEngine:
 
         for rec_type, count in slot_counts.items():
             strategy = self.strategies[rec_type]
-            candidates = strategy.candidates(user, self.catalogue, self.population, excluded | chosen)
+            candidates = strategy.candidates(user, self.catalogue, population, excluded | chosen)
             picked = 0
             for story_id in candidates:
                 if story_id in chosen:
@@ -487,7 +507,7 @@ class RecommenderEngine:
                 if len(results) == 6:
                     break
                 for story_id in self.strategies[topup_type].candidates(
-                    user, self.catalogue, self.population, excluded | chosen
+                    user, self.catalogue, population, excluded | chosen
                 ):
                     if len(results) == 6:
                         break
@@ -502,7 +522,7 @@ class RecommenderEngine:
                 if len(results) == 6:
                     break
                 for story_id in self.strategies[rec_type].candidates(
-                    user, self.catalogue, self.population, seen | chosen
+                    user, self.catalogue, population, seen | chosen
                 ):
                     if len(results) == 6:
                         break
@@ -560,7 +580,9 @@ class RecommenderEngine:
         seen: set[str],
         previously_recommended: set[str],
         results: list[tuple[str, int]],
+        population: dict[str, UserModel] | None = None,
     ) -> list[tuple[str, int]]:
+        population = population if population is not None else self.population
         fresh_count = sum(1 for sid, _ in results if sid not in previously_recommended)
         needed = MIN_FRESH_PER_BATCH - fresh_count
         if needed <= 0:
@@ -574,7 +596,7 @@ class RecommenderEngine:
             if len(added) == needed:
                 break
             strategy = self.strategies[rec_type]
-            for story_id in strategy.candidates(user, self.catalogue, self.population, seen | chosen):
+            for story_id in strategy.candidates(user, self.catalogue, population, seen | chosen):
                 if story_id in previously_recommended or story_id in chosen or story_id in seen_in_add:
                     continue
                 seen_in_add.add(story_id)
@@ -596,7 +618,8 @@ class RecommenderEngine:
         return new_results
 
     def _cold_start_recommendations(
-        self, user: UserModel, excluded: set[str]
+        self, user: UserModel, excluded: set[str],
+        population: dict[str, UserModel] | None = None,
     ) -> list[tuple[str, int]]:
         """Open question #1, decided at the 2026-06-22 design meeting:
         default for a brand-new user is topical (newest) + a random draw
@@ -608,15 +631,16 @@ class RecommenderEngine:
         the single most popular ones, to avoid over-promoting one story
         to every new user.
         """
+        population = population if population is not None else self.population
         results: list[tuple[str, int]] = []
         chosen: set[str] = set()
 
-        topical = self.strategies[TOPICAL].candidates(user, self.catalogue, self.population, excluded)
+        topical = self.strategies[TOPICAL].candidates(user, self.catalogue, population, excluded)
         for story_id in topical[:1]:
             results.append((story_id, TOPICAL))
             chosen.add(story_id)
 
-        cohort_best = self._cohort_average_ranking(excluded | chosen)
+        cohort_best = self._cohort_average_ranking(excluded | chosen, population)
         pool = cohort_best[:COLD_START_POPULAR_POOL_SIZE]
         sample_size = min(4, len(pool))
         with self._rng_lock:
@@ -625,17 +649,20 @@ class RecommenderEngine:
             results.append((story_id, COLLABORATIVE))
             chosen.add(story_id)
 
-        wildcard = self.strategies[WILDCARD].candidates(user, self.catalogue, self.population, excluded | chosen)
+        wildcard = self.strategies[WILDCARD].candidates(user, self.catalogue, population, excluded | chosen)
         for story_id in wildcard[:1]:
             results.append((story_id, WILDCARD))
             chosen.add(story_id)
 
         return results
 
-    def _cohort_average_ranking(self, excluded: set[str]) -> list[str]:
+    def _cohort_average_ranking(
+        self, excluded: set[str], population: dict[str, UserModel] | None = None
+    ) -> list[str]:
+        population = population if population is not None else self.population
         sums: dict[str, float] = {}
         counts: dict[str, int] = {}
-        for other in self.population.values():
+        for other in population.values():
             for story_id, entry in other.story_history.items():
                 if story_id in excluded or entry.connectedness is None:
                     continue

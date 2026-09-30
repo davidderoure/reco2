@@ -62,6 +62,7 @@ class RecommenderServicer(recommender_pb2_grpc.RecommenderServiceServicer):
             request.story_id,
             scores,
             timestamp=_to_epoch(request.timestamp),
+            user_type=request.user_type,
         )
         self._persist(request.user_id)
         return empty_pb2.Empty()
@@ -69,6 +70,7 @@ class RecommenderServicer(recommender_pb2_grpc.RecommenderServiceServicer):
     def UserProvidedMood(self, request, context):
         print(f"[EVENT] User {request.user_id} provided mood score {request.mood_score} "
               f"(Story: {request.story_id})")
+        self.engine.get_or_create_user(request.user_id, user_type=request.user_type)
         self.engine.record_mood(
             request.user_id,
             request.mood_score,
@@ -80,6 +82,7 @@ class RecommenderServicer(recommender_pb2_grpc.RecommenderServiceServicer):
 
     def UserBookmarkedStory(self, request, context):
         print(f"[EVENT] User {request.user_id} bookmarked story {request.story_id}")
+        self.engine.get_or_create_user(request.user_id, user_type=request.user_type)
         self.engine.record_bookmark(
             request.user_id, request.story_id, timestamp=_to_epoch(request.timestamp)
         )
@@ -88,6 +91,7 @@ class RecommenderServicer(recommender_pb2_grpc.RecommenderServiceServicer):
 
     def UserUnbookmarkedStory(self, request, context):
         print(f"[EVENT] User {request.user_id} unbookmarked story {request.story_id}")
+        self.engine.get_or_create_user(request.user_id, user_type=request.user_type)
         self.engine.record_unbookmark(
             request.user_id, request.story_id, timestamp=_to_epoch(request.timestamp)
         )
@@ -100,20 +104,21 @@ class RecommenderServicer(recommender_pb2_grpc.RecommenderServiceServicer):
               f"(source: {engagement_source})")
         # Not used by any logic yet: starting an engagement carries no
         # signal until it's confirmed/stopped/scored.
-        self.engine.get_or_create_user(request.user_id)
+        self.engine.get_or_create_user(request.user_id, user_type=request.user_type)
         return empty_pb2.Empty()
 
     def UserEngagementStoryConfirm(self, request, context):
         engagement_source = _engagement_type_name(request.engagement_type)
         print(f"[EVENT] User {request.user_id} confirmed engagement with story {request.story_id} "
               f"(source: {engagement_source})")
-        self.engine.get_or_create_user(request.user_id)
+        self.engine.get_or_create_user(request.user_id, user_type=request.user_type)
         return empty_pb2.Empty()
 
     def UserEngagementStoryProgress(self, request, context):
         engagement_source = _engagement_type_name(getattr(request, "engagement_type", 0))
         print(f"[EVENT] User {request.user_id} progressed story {request.story_id} "
               f"to {request.progress_percentage} (source: {engagement_source})")
+        self.engine.get_or_create_user(request.user_id, user_type=request.user_type)
         self.engine.record_engagement_progress(
             request.user_id,
             request.story_id,
@@ -131,6 +136,7 @@ class RecommenderServicer(recommender_pb2_grpc.RecommenderServiceServicer):
             request.story_id,
             request.progress_percentage,
             timestamp=_to_epoch(request.timestamp),
+            user_type=request.user_type,
         )
         # No persist: stop only updates viewed_pct, which is analysis data and
         # does not affect recommendations. State is persisted on the next
@@ -141,6 +147,7 @@ class RecommenderServicer(recommender_pb2_grpc.RecommenderServiceServicer):
         engagement_source = _engagement_type_name(request.engagement_type)
         print(f"[EVENT] User {request.user_id} aborted story {request.story_id} "
               f"(source: {engagement_source})")
+        self.engine.get_or_create_user(request.user_id, user_type=request.user_type)
         self.engine.record_abort(
             request.user_id,
             request.story_id,
@@ -153,7 +160,11 @@ class RecommenderServicer(recommender_pb2_grpc.RecommenderServiceServicer):
         return empty_pb2.Empty()
 
     def GetRecommendations(self, request, context):
-        recs = self.engine.get_recommendations(request.user_id, timestamp=_to_epoch(request.timestamp))
+        recs = self.engine.get_recommendations(
+            request.user_id,
+            timestamp=_to_epoch(request.timestamp),
+            user_type=request.user_type,
+        )
         recommendations = [
             recommender_pb2.RecommendationResult(story_id=story_id, recommender_type=rec_type)
             for story_id, rec_type in recs

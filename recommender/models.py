@@ -59,6 +59,7 @@ class StoryHistoryEntry:
 @dataclass
 class UserModel:
     user_id: str
+    user_type: int = 0  # 0 = Trial participant, 1 = Test account (WOB-433)
     tag_affinity: dict[str, float] = field(default_factory=dict)
     story_history: dict[str, StoryHistoryEntry] = field(default_factory=dict)
     # Bookmarked but not necessarily read/scored — story_id -> bookmark timestamp.
@@ -85,6 +86,7 @@ class UserModel:
     def to_json(self) -> str:
         return json.dumps({
             "user_id": self.user_id,
+            "user_type": self.user_type,
             "tag_affinity": self.tag_affinity,
             "story_history": {
                 sid: {
@@ -113,6 +115,7 @@ class UserModel:
         }
         return cls(
             user_id=user_id,
+            user_type=data.get("user_type", 0),
             tag_affinity=data.get("tag_affinity", {}),
             story_history=history,
             bookmarked_story_ids=data.get("bookmarked_story_ids", {}),

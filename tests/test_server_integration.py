@@ -76,7 +76,7 @@ def test_answered_question_event_updates_model_and_persists(grpc_channel):
 
     stub.UserAnsweredQuestion(
         recommender_pb2.UserAnsweredQuestionRequest(
-            user_id="u1", story_id="s0", scores=[8, 5, 5, 5]
+            user_id="u1", story_id="s0", score_1=8, score_2=5, score_3=5, score_4=5
         )
     )
 

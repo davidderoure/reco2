@@ -62,6 +62,7 @@ message UserAnsweredQuestionRequest {
   optional int32 score_2 = 5;  // optional, range 1–5
   optional int32 score_3 = 6;  // optional, range 1–5
   optional int32 score_4 = 7;  // optional, range 1–5
+  int32 user_type = 8; // WOB-433: 0 = Trial (participant), 1 = Test account. Sent on every request.
 }
 
 message UserProvidedMoodRequest {
@@ -69,12 +70,14 @@ message UserProvidedMoodRequest {
   int32 mood_score = 2; // 1–9: current user mood
   google.protobuf.Timestamp timestamp = 3;
   string story_id = 4; // optional: set when mood is captured at end of a story
+  int32 user_type = 5; // WOB-433: 0 = Trial (participant), 1 = Test account. Sent on every request.
 }
 
 message UserBookmarkedStoryRequest {
   string user_id = 1;
   string story_id = 2;
   google.protobuf.Timestamp timestamp = 3;
+  int32 user_type = 4; // WOB-433: 0 = Trial (participant), 1 = Test account. Sent on every request.
 }
 
 message UserEngagementStartConfirmRequest {
@@ -82,6 +85,7 @@ message UserEngagementStartConfirmRequest {
   string story_id = 2;
   EngagementType engagement_type = 3;
   google.protobuf.Timestamp timestamp = 4;
+  int32 user_type = 5; // WOB-433: 0 = Trial (participant), 1 = Test account. Sent on every request.
 }
 
 message UserEngagementProgressRequest {
@@ -89,6 +93,7 @@ message UserEngagementProgressRequest {
   string story_id = 2;
   google.protobuf.Timestamp timestamp = 3;
   float progress_percentage = 4;
+  int32 user_type = 5; // WOB-433: 0 = Trial (participant), 1 = Test account. Sent on every request.
 }
 
 message UserEngagementStopRequest {
@@ -97,6 +102,7 @@ message UserEngagementStopRequest {
   EngagementType engagement_type = 3;
   google.protobuf.Timestamp timestamp = 4;
   float progress_percentage = 5;
+  int32 user_type = 6; // WOB-433: 0 = Trial (participant), 1 = Test account. Sent on every request.
 }
 
 message UserEngagementAbortRequest {
@@ -104,6 +110,7 @@ message UserEngagementAbortRequest {
   string story_id = 2;
   EngagementType engagement_type = 3;
   google.protobuf.Timestamp timestamp = 4;
+  int32 user_type = 5; // WOB-433: 0 = Trial (participant), 1 = Test account. Sent on every request.
 }
 
 // -------------------------------------------------------
@@ -113,6 +120,7 @@ message UserEngagementAbortRequest {
 message GetRecommendationsRequest {
   string user_id = 1;
   google.protobuf.Timestamp timestamp = 2;
+  int32 user_type = 3; // WOB-433: 0 = Trial (participant), 1 = Test account. Sent on every request.
 }
 
 message RecommendationResult {

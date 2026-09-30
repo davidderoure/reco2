@@ -421,3 +421,72 @@ def test_trim_history_recommendations_still_work():
         assert len(set(ids)) == 6
     finally:
         engine_mod.MAX_HISTORY_SIZE = original
+
+
+# -- user_type grouping tests (WOB-433) --------------------------------------
+
+def _score_stories(engine, user_id, story_ids, score=4, user_type=0):
+    for i, sid in enumerate(story_ids):
+        engine.record_answered_question(
+            user_id, sid, [score], timestamp=float(i), user_type=user_type
+        )
+
+
+def test_user_type_stored_on_model():
+    engine = RecommenderEngine(make_catalogue())
+    engine.get_or_create_user("trial-u1", user_type=0)
+    engine.get_or_create_user("test-u1", user_type=1)
+    assert engine.population["trial-u1"].user_type == 0
+    assert engine.population["test-u1"].user_type == 1
+
+
+def test_same_group_population_filters_correctly():
+    engine = RecommenderEngine(make_catalogue())
+    engine.get_or_create_user("trial-u1", user_type=0)
+    engine.get_or_create_user("trial-u2", user_type=0)
+    engine.get_or_create_user("test-u1", user_type=1)
+    trial_pop = engine._same_group_population(0)
+    test_pop = engine._same_group_population(1)
+    assert set(trial_pop.keys()) == {"trial-u1", "trial-u2"}
+    assert set(test_pop.keys()) == {"test-u1"}
+
+
+def test_collaborative_ignores_other_group():
+    """A test user's ratings must not influence trial recommendations."""
+    catalogue = make_catalogue(30)
+    engine = RecommenderEngine(catalogue)
+
+    # Test user rates stories s0-s9 very highly
+    _score_stories(engine, "test-u1", [f"s{i}" for i in range(10)], score=5, user_type=1)
+
+    # Trial user has rated nothing — cold start should not be polluted by test ratings
+    trial_pop = engine._same_group_population(0)
+    # The test user must not appear in the trial group population
+    assert "test-u1" not in trial_pop
+
+    cohort = engine._cohort_average_ranking(set(), population=trial_pop)
+    # With no trial ratings, cohort ranking must be empty
+    assert cohort == []
+
+
+def test_user_type_persisted_in_json():
+    engine = RecommenderEngine(make_catalogue())
+    user = engine.get_or_create_user("u1", user_type=1)
+    blob = user.to_json()
+    from recommender.models import UserModel
+    loaded = UserModel.from_json("u1", blob)
+    assert loaded.user_type == 1
+
+
+def test_get_recommendations_passes_user_type():
+    """get_recommendations with user_type=1 must use only test-group population."""
+    catalogue = make_catalogue(30)
+    engine = RecommenderEngine(catalogue)
+
+    # Trial user has rated all stories — should not influence test recs
+    _score_stories(engine, "trial-u1", [f"s{i}" for i in range(20)], score=5, user_type=0)
+
+    # Test user gets recommendations — cold start, scoped to test group
+    recs = engine.get_recommendations("test-u1", user_type=1)
+    assert len(recs) == 6
+    assert len({sid for sid, _ in recs}) == 6
