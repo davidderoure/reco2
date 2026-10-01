@@ -8,6 +8,7 @@ RecommenderEngine instead of being a no-op / hardcoded response.
 from __future__ import annotations
 
 import os
+import signal
 import sys
 import threading
 import time
@@ -34,6 +35,11 @@ GRPC_SERVER_PORT = os.getenv("GRPC_SERVER_PORT", "50051")
 # value — tags/stories don't need to propagate in real time, just
 # regularly enough that "stale for the life of the process" isn't a risk.
 CATALOGUE_REFRESH_SECONDS = int(os.getenv("CATALOGUE_REFRESH_SECONDS", "3600"))
+
+# How often to reload all user models from C# (seconds). Reloading drops
+# deleted accounts from memory and picks up any out-of-band model changes.
+# Set to 0 to disable periodic reload (manual SIGUSR1 only).
+POPULATION_RELOAD_SECONDS = int(os.getenv("POPULATION_RELOAD_SECONDS", "86400"))
 
 
 class RecommenderServicer(recommender_pb2_grpc.RecommenderServiceServicer):
@@ -246,6 +252,43 @@ def refresh_catalogue_loop(engine: RecommenderEngine, story_client, interval_sec
             print(f"Catalogue refresh failed, will retry: {exc}")
 
 
+def reload_population(engine: RecommenderEngine, story_client) -> None:
+    """Re-fetch all user models from C# and replace the in-memory population.
+
+    Deleted accounts are absent from the response and will no longer appear
+    in memory after this call. In-memory-only state (the abort flag and
+    viewed_pct for events since the last persist) may be lost; this is
+    acceptable because scored answers and bookmarks are persisted synchronously
+    before this call runs.
+
+    Safe to call from a background thread while the server is serving — the
+    existing population_lock in the engine protects the swap.
+    """
+    try:
+        users = story_client.load_all_user_models()
+        before = len(engine.population)
+        engine.load_population(users)
+        after = len(engine.population)
+        dropped = before - after
+        print(
+            f"Population reloaded: {after} users"
+            + (f" ({dropped} dropped)" if dropped else "")
+        )
+    except Exception as exc:  # noqa: BLE001
+        print(f"Population reload failed, will retry next interval: {exc}")
+
+
+def population_reload_loop(
+    engine: RecommenderEngine, story_client, interval_seconds: int
+) -> None:
+    """Periodically reload all user models. Set POPULATION_RELOAD_SECONDS=0 to disable."""
+    if interval_seconds <= 0:
+        return
+    while True:
+        time.sleep(interval_seconds)
+        reload_population(engine, story_client)
+
+
 def serve():
     engine, story_client = build_engine()
 
@@ -269,6 +312,20 @@ def serve():
         daemon=True,
     )
     refresh_thread.start()
+
+    reload_thread = threading.Thread(
+        target=population_reload_loop,
+        args=(engine, story_client, POPULATION_RELOAD_SECONDS),
+        daemon=True,
+    )
+    reload_thread.start()
+
+    # SIGUSR1 triggers an immediate population reload — useful for forcing a
+    # sync after account deletions without waiting for the next scheduled
+    # interval. In a container: docker kill --signal=USR1 <container>.
+    signal.signal(signal.SIGUSR1, lambda sig, frame: threading.Thread(
+        target=reload_population, args=(engine, story_client), daemon=True
+    ).start())
 
     try:
         while True:
