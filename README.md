@@ -59,7 +59,7 @@ there's no real persistence, just enough to exercise the RPCs.
 ## Testing
 
 ```bash
-pytest                              # unit + integration + concurrency + restart tests (63 tests)
+pytest                              # unit + integration + concurrency + restart tests (75 tests)
 python3 -m simulation.simulate      # synthetic population, response-time percentiles, recommender-vs-random effectiveness
 python3 -m simulation.journeys      # per-user round-by-round transcripts → simulation/journeys_output.md
 python3 -m simulation.journeys --noise       # same with 15% engagement interruption noise
@@ -167,6 +167,34 @@ potential state-loss detection (reversion to cold-start distinguished from
 natural lapse after >30 days away). The timeline tool is designed for terminal
 use in a TRE (Trusted Research Environment) with an optional `--html` output
 for local review before deployment there.
+
+## User groups (WOB-433)
+
+Every gRPC request carries a `user_type` field: `0 = Trial participant`,
+`1 = Test account`. The recommender stores this on each `UserModel` and uses
+it to scope collaborative filtering and cold-start cohort ranking to the same
+group, so test-account ratings cannot influence trial recommendations.
+
+## Population reload
+
+The recommender's in-memory population is loaded from C# at startup and
+updated incrementally as events arrive. Accounts deleted on the C# side are
+not automatically evicted — a reload is needed to drop them from memory.
+
+Two mechanisms are provided:
+
+- **Periodic reload** (default every 24 h): re-fetches all user models from C#
+  and atomically replaces the population. Controlled by
+  `POPULATION_RELOAD_SECONDS` (set to `0` to disable; the SIGUSR1 trigger
+  still works).
+- **SIGUSR1**: triggers an immediate reload without waiting for the next
+  scheduled interval. In a container:
+  ```bash
+  docker kill --signal=USR1 <container_name>
+  ```
+
+A failed reload (e.g. transient StoryService outage) is logged and retried at
+the next interval — the existing population is left untouched.
 
 ## Pending / coming in a future release
 
