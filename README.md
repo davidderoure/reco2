@@ -161,6 +161,32 @@ python -m trial.timeline --days 30 --participants AB12-CD34
 python -m trial.timeline --days 30 --html timeline.html   # richer local view
 ```
 
+### OriginId lists
+
+The Trial API requires an explicit list of OriginIds — it no longer accepts
+requests without one (data protection). The tools load these from local files
+in `ids/` (gitignored — obtain from the study team):
+
+| File          | user_type | Group             |
+|---------------|-----------|-------------------|
+| `ids/ids_0.txt` | 0       | Trial participants |
+| `ids/ids_1.txt` | 1       | Test accounts      |
+| `ids/ids_2.txt` | 2       | Usability trial    |
+
+Each file contains one OriginId per line (`XXXX-XXXX`); blank lines and
+`#` comments are ignored. The tools default to `ids/ids_2.txt` during the
+current usability trial phase (`DEFAULT_IDS_FILE` in `trial/client.py`).
+
+To use a different file:
+```bash
+python -m trial.analyse --days 30 --ids-file ids/ids_1.txt
+```
+
+To look up a single participant without a file:
+```bash
+python -m trial.timeline --days 30 --participants AB12-CD34
+```
+
 The analysis report covers: recommender type distribution, story popularity,
 high-abort stories, per-participant Q1 trend, personalisation pattern, and
 potential state-loss detection (reversion to cold-start distinguished from
