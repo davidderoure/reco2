@@ -23,7 +23,7 @@ from collections import defaultdict
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
-from .client import TrialAPIError, TrialClient
+from .client import TrialAPIError, TrialClient, load_ids, DEFAULT_IDS_FILE
 from .models import EngagementRecord, ParticipantEngagement, RECOMMENDER_TYPE_NAMES
 
 # Recommender types that indicate the personalisation model is active
@@ -322,7 +322,10 @@ def main(argv: Optional[list[str]] = None) -> int:
                               metavar="YYYY-MM-DD")
     parser.add_argument("--to", dest="date_to", type=_parse_date,
                         metavar="YYYY-MM-DD")
-    parser.add_argument("--participants", nargs="+", metavar="XXXX-XXXX")
+    parser.add_argument("--participants", nargs="+", metavar="XXXX-XXXX",
+                        help="Filter to specific IDs (space-separated). Overrides --ids-file.")
+    parser.add_argument("--ids-file", metavar="FILE", default=DEFAULT_IDS_FILE,
+                        help=f"File of OriginIds to fetch, one per line (default: {DEFAULT_IDS_FILE})")
     parser.add_argument("--output", metavar="FILE")
 
     args = parser.parse_args(argv)
@@ -337,9 +340,12 @@ def main(argv: Optional[list[str]] = None) -> int:
         period_end = args.date_to + timedelta(days=1) - timedelta(seconds=1)
 
     try:
+        origin_ids = args.participants or load_ids(args.ids_file)
         client = TrialClient.from_env()
-        participants = client.fetch(period_start, period_end,
-                                    origin_ids=args.participants)
+        participants = client.fetch(period_start, period_end, origin_ids=origin_ids)
+    except (FileNotFoundError, ValueError) as e:
+        print(f"Error: {e}", file=sys.stderr)
+        return 1
     except EnvironmentError as e:
         print(f"Error: {e}", file=sys.stderr)
         return 1

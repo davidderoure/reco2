@@ -31,7 +31,48 @@ API_URL = "https://origin-api.imagineear.com/api/Trial/engagement_data"
 
 ORIGIN_ID_RE = re.compile(r"^[A-Z0-9]{4}-[A-Z0-9]{4}$")
 
+
+def load_ids(path: str) -> list[str]:
+    """Load OriginIds from a file (one per line, # comments and blank lines ignored).
+
+    Raises FileNotFoundError with a helpful message if the file is absent —
+    the API no longer accepts requests without an explicit ID list.
+    """
+    if not os.path.exists(path):
+        raise FileNotFoundError(
+            f"ID list file not found: {path}\n"
+            "Create it with one OriginId per line (format XXXX-XXXX).\n"
+            "See ids/README.md for details."
+        )
+    ids = []
+    with open(path) as f:
+        for line in f:
+            line = line.strip()
+            if not line or line.startswith("#"):
+                continue
+            if not ORIGIN_ID_RE.match(line):
+                raise ValueError(
+                    f"Invalid OriginId {line!r} in {path} — expected XXXX-XXXX "
+                    "(uppercase alphanumeric, 4 chars each side)"
+                )
+            ids.append(line)
+    if not ids:
+        raise ValueError(f"ID list file {path} contains no valid OriginIds")
+    return ids
+
 _REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+# Default ID list files, one per user group (user_type value).
+# Files live in ids/ at the repo root and are gitignored — obtain from the study team.
+_IDS_DIR = os.path.join(_REPO_ROOT, "ids")
+DEFAULT_IDS_FILES = {
+    0: os.path.join(_IDS_DIR, "ids_0.txt"),  # trial participants
+    1: os.path.join(_IDS_DIR, "ids_1.txt"),  # test accounts
+    2: os.path.join(_IDS_DIR, "ids_2.txt"),  # usability trial
+}
+# The file the CLI tools load by default when no --ids-file is given.
+# Points at the usability trial during this phase; update as the trial progresses.
+DEFAULT_IDS_FILE = DEFAULT_IDS_FILES[2]
 
 
 def _load_dotenv() -> None:
