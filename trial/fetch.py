@@ -24,12 +24,57 @@ import argparse
 import csv
 import io
 import json
+import os
 import sys
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 from .client import TrialClient, TrialAPIError, load_ids, DEFAULT_IDS_FILE
 from .models import ParticipantEngagement, RECOMMENDER_TYPE_NAMES
+
+
+def load_participants_json(path: str) -> list[ParticipantEngagement]:
+    """Load participants from a JSON file.
+
+    Accepts two formats:
+    - Raw API response (camelCase keys, as saved by airlock_fetch.sh)
+    - trial.fetch --format json output (snake_case keys)
+
+    Raises FileNotFoundError if the file is absent, ValueError on parse errors.
+    """
+    if not os.path.exists(path):
+        raise FileNotFoundError(f"Input file not found: {path}")
+    with open(path) as f:
+        data = json.load(f)
+    if not isinstance(data, list):
+        raise ValueError(f"Expected a JSON array in {path}")
+    participants = []
+    for p in data:
+        # Detect format by key name
+        if "originId" in p:
+            participants.append(ParticipantEngagement.from_dict(p))
+        else:
+            records = [_record_from_fetch_json(r) for r in p.get("records", [])]
+            participants.append(ParticipantEngagement(origin_id=p["origin_id"], records=records))
+    return participants
+
+
+def _record_from_fetch_json(r: dict):
+    from .models import EngagementRecord, _parse_dt
+    return EngagementRecord(
+        story_id=r["story_id"],
+        time_start=_parse_dt(r["time_start"]),
+        time_end=_parse_dt(r["time_end"]) if r.get("time_end") else None,
+        percent_complete=r.get("percent_complete"),
+        recommender_type=r.get("recommender_type"),
+        viewpoint_text=r.get("viewpoint_text"),
+        mood=r.get("mood"),
+        mood_time=_parse_dt(r["mood_time"]) if r.get("mood_time") else None,
+        question1_rating=r.get("question1_rating"),
+        question2_rating=r.get("question2_rating"),
+        question3_rating=r.get("question3_rating"),
+        question4_rating=r.get("question4_rating"),
+    )
 
 
 def _parse_date(s: str) -> datetime:

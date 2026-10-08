@@ -1,23 +1,68 @@
 # ORIGIN Trial CLI — TRE Setup and Reference
 
 This guide covers installation, configuration, and day-to-day use of the
-ORIGIN Trial command-line tools on a virtual Linux desktop inside a Trusted
-Research Environment (TRE).
+ORIGIN Trial command-line tools inside a Trusted Research Environment (TRE).
+
+The workflow is split between two environments:
+
+| Environment | Who | What runs here |
+|-------------|-----|----------------|
+| **Airlock** | Vinod (TRE operator) | `airlock_fetch.sh` — two curl commands that fetch data from the Trial API and save it as `data.json` |
+| **VRE (virtual desktop)** | David (analyst) | `trial.analyse` and `trial.timeline` — read `data.json`, no internet access needed |
 
 ---
 
-## 1. Prerequisites
+## Airlock — Vinod's steps
 
-- Python 3.10 or later (`python3 --version`)
-- Git access to the `reco2` repository
-- API credentials (`TRIAL_CLIENT_ID` and `TRIAL_CLIENT_SECRET`) — obtain from
-  David De Roure
-- A file of participant OriginIds — obtain from the study team via the data
-  sharing agreement (format described in §4 below)
+The airlock has outbound internet access but is flushed after each use.
+The only things that need to go into the airlock are:
+
+1. `trial/airlock_fetch.sh` — the fetch script (from the repo)
+2. `ids_2.txt` — the participant OriginId list (provided by the study team)
+
+Both files should be kept in **persistent storage** outside the airlock and
+copied in each session.
+
+### Running the fetch
+
+Set the API credentials (obtain from David):
+
+```bash
+export TRIAL_CLIENT_ID=trial-api-m2m
+export TRIAL_CLIENT_SECRET=your-secret-here
+```
+
+Run the fetch script:
+
+```bash
+bash airlock_fetch.sh ids_2.txt 2026-10-01 2026-10-08
+```
+
+Arguments: `<ids_file> <period_start> <period_end>` (dates in `YYYY-MM-DD`).
+
+The script:
+1. Obtains an OAuth2 access token from the ORIGIN auth server
+2. Fetches engagement data for all participants in `ids_2.txt`
+3. Saves the result as **`data.json`** in the current directory
+
+Transfer `data.json` through the airlock into the VRE.
+
+### ids_2.txt format
+
+One OriginId per line (`XXXX-XXXX`, uppercase alphanumeric).
+Blank lines and `#` comments are ignored:
+
+```
+# Usability trial participants
+AB12-CD34
+EF56-GH78
+```
 
 ---
 
-## 2. Installation
+## VRE (virtual desktop) — David's steps
+
+### One-time setup
 
 ```bash
 # Clone the repository
@@ -28,65 +73,10 @@ cd reco2
 pip install -r requirements.txt
 ```
 
-Dependencies are listed in `requirements.txt`; the trial client requires only
-`requests` in addition to the standard library.
+No credentials or internet access are needed for analysis — all commands read
+from the `data.json` file that arrived through the airlock.
 
----
-
-## 3. Configuration
-
-Credentials can be set in two ways.
-
-### Option A — environment variables (recommended for scripts)
-
-```bash
-export TRIAL_CLIENT_ID=trial-api-m2m
-export TRIAL_CLIENT_SECRET=<secret>
-```
-
-Add these to `~/.bashrc` or `~/.profile` so they are set automatically.
-
-### Option B — `.env` file (convenient for interactive use)
-
-Create a file called `.env` in the `reco2/` directory:
-
-```
-TRIAL_CLIENT_ID=trial-api-m2m
-TRIAL_CLIENT_SECRET=<secret>
-```
-
-The tools load this file automatically. **Do not commit `.env` to git** — it
-is already listed in `.gitignore`.
-
-Authentication uses OAuth2 client credentials (M2M); tokens expire after
-5 minutes and are refreshed automatically.
-
----
-
-## 4. Participant ID file
-
-The Trial API requires an explicit list of OriginIds. Create a plain-text file
-in the `ids/` directory:
-
-```
-ids/ids_2.txt      ← usability trial participants (current phase)
-```
-
-Format: one OriginId per line (`XXXX-XXXX`, uppercase alphanumeric).
-Blank lines and lines beginning with `#` are ignored.
-
-```
-# Usability trial participants
-AB12-CD34
-EF56-GH78
-```
-
-The `ids/` directory is gitignored — files placed there will not be committed
-to the repository. Obtain the current participant list from the study team.
-
----
-
-## 5. Updating
+### Updating
 
 ```bash
 cd reco2
@@ -94,21 +84,29 @@ git pull
 pip install -r requirements.txt   # re-run if requirements.txt changed
 ```
 
-All commands are run from the `reco2/` directory.
-
----
-
-## 6. Command reference
-
-All commands are invoked as Python modules from the `reco2/` directory:
+### Running the analysis
 
 ```bash
-python -m trial.analyse  ...
-python -m trial.fetch    ...
-python -m trial.timeline ...
+# Full analysis report
+python -m trial.analyse --input data.json
+
+# Save report to file
+python -m trial.analyse --input data.json --output report_$(date +%Y%m%d).txt
+
+# Per-participant timeline
+python -m trial.timeline --input data.json
+
+# Timeline as HTML
+python -m trial.timeline --input data.json --html timeline.html
+
+# Filter to one participant
+python -m trial.analyse --input data.json --participants AB12-CD34
+python -m trial.timeline --input data.json --participants AB12-CD34
 ```
 
 ---
+
+## Command reference
 
 ### trial.analyse(1)
 
@@ -117,14 +115,13 @@ python -m trial.timeline ...
 
 **SYNOPSIS**  
 ```
+python -m trial.analyse --input FILE [--participants ID ...] [--output FILE]
 python -m trial.analyse (--days N | --from YYYY-MM-DD --to YYYY-MM-DD)
-                        [--ids-file FILE] [--participants ID ...]
-                        [--output FILE]
+                        [--ids-file FILE] [--participants ID ...] [--output FILE]
 ```
 
 **DESCRIPTION**  
-Fetches engagement data from the Trial API and produces a plain-text report
-covering recommender health indicators for the study team:
+Produces a plain-text report covering recommender health indicators:
 
 - Recommender type distribution — are all strategies contributing?
 - Story popularity across the population — any dominant stories?
@@ -137,29 +134,23 @@ covering recommender health indicators for the study team:
 
 | Option | Description |
 |--------|-------------|
-| `--days N` | Analyse the last N days (ending now). Required unless `--from` is given. |
-| `--from YYYY-MM-DD` | Start of period. Requires `--to`. |
-| `--to YYYY-MM-DD` | End of period. Required with `--from`. |
-| `--ids-file FILE` | Path to OriginId list file (default: `ids/ids_2.txt`). |
-| `--participants ID ...` | Space-separated OriginIds. Overrides `--ids-file`. |
+| `--input FILE` | Read from `data.json` (airlock output). No credentials needed. |
+| `--days N` | Fetch live: last N days. |
+| `--from YYYY-MM-DD` | Fetch live: start of period (requires `--to`). |
+| `--to YYYY-MM-DD` | Fetch live: end of period. |
+| `--ids-file FILE` | OriginId list file for live fetch (default: `ids/ids_2.txt`). |
+| `--participants ID ...` | Filter to specific IDs (overrides `--ids-file`). |
 | `--output FILE` | Write report to FILE instead of stdout. |
 
 **EXAMPLES**  
 ```bash
-# Daily monitoring — last 30 days to stdout
+# From airlock data
+python -m trial.analyse --input data.json
+python -m trial.analyse --input data.json --output report_$(date +%Y%m%d).txt
+
+# Live fetch (requires credentials and internet)
 python -m trial.analyse --days 30
-
-# Save weekly report to file
-python -m trial.analyse --days 7 --output report_$(date +%Y%m%d).txt
-
-# Full trial period
-python -m trial.analyse --from 2026-10-01 --to 2026-11-30
-
-# Single participant
-python -m trial.analyse --days 30 --participants AB12-CD34
-
-# Use a specific ID file
-python -m trial.analyse --days 30 --ids-file ids/ids_2.txt
+python -m trial.analyse --from 2026-10-01 --to 2026-10-31
 ```
 
 ---
@@ -171,9 +162,9 @@ python -m trial.analyse --days 30 --ids-file ids/ids_2.txt
 
 **SYNOPSIS**  
 ```
+python -m trial.timeline --input FILE [--participants ID ...] [--html FILE]
 python -m trial.timeline (--days N | --from YYYY-MM-DD --to YYYY-MM-DD)
-                         [--ids-file FILE] [--participants ID ...]
-                         [--html FILE]
+                         [--ids-file FILE] [--participants ID ...] [--html FILE]
 ```
 
 **DESCRIPTION**  
@@ -181,34 +172,30 @@ Displays each participant's engagement history as an ASCII timeline — one row
 per session, with recommender types, Q1 scores, completion status, and flags
 for state-loss reversion and high-abort stories.
 
-Designed for terminal use in a TRE. The optional `--html` flag saves a
-self-contained HTML file for richer local review (no external network
-connections required to view it).
+The optional `--html` flag saves a self-contained HTML file (no external
+network connections required to view it).
 
 **OPTIONS**  
 
 | Option | Description |
 |--------|-------------|
-| `--days N` | Show the last N days. |
-| `--from YYYY-MM-DD` | Start of period. |
-| `--to YYYY-MM-DD` | End of period. |
-| `--ids-file FILE` | Path to OriginId list file (default: `ids/ids_2.txt`). |
-| `--participants ID ...` | Space-separated OriginIds. Overrides `--ids-file`. |
-| `--html FILE` | Also save an HTML version of the timeline. |
+| `--input FILE` | Read from `data.json` (airlock output). No credentials needed. |
+| `--days N` | Fetch live: last N days. |
+| `--from YYYY-MM-DD` | Fetch live: start of period. |
+| `--to YYYY-MM-DD` | Fetch live: end of period. |
+| `--ids-file FILE` | OriginId list file for live fetch (default: `ids/ids_2.txt`). |
+| `--participants ID ...` | Filter to specific IDs (overrides `--ids-file`). |
+| `--html FILE` | Also save an HTML version. |
 
 **EXAMPLES**  
 ```bash
-# All participants, last 30 days
+# From airlock data
+python -m trial.timeline --input data.json
+python -m trial.timeline --input data.json --html timeline.html
+python -m trial.timeline --input data.json --participants AB12-CD34
+
+# Live fetch (requires credentials and internet)
 python -m trial.timeline --days 30
-
-# Save HTML for review
-python -m trial.timeline --days 30 --html timeline.html
-
-# Single participant drill-down
-python -m trial.timeline --days 30 --participants AB12-CD34
-
-# Date range
-python -m trial.timeline --from 2026-10-01 --to 2026-10-31
 ```
 
 ---
@@ -226,63 +213,32 @@ python -m trial.fetch (--days N | --from YYYY-MM-DD --to YYYY-MM-DD)
 ```
 
 **DESCRIPTION**  
-Fetches raw engagement data from the Trial API. Useful for exporting data for
-further analysis or archiving. The default format (`summary`) prints a
-human-readable summary; `json` and `csv` produce machine-readable output.
+Fetches raw engagement data from the Trial API. This tool always calls the
+API directly and requires credentials. Use `airlock_fetch.sh` instead when
+running from the airlock.
 
 **OPTIONS**  
 
 | Option | Description |
 |--------|-------------|
-| `--days N` | Fetch the last N days (ending now). |
-| `--from YYYY-MM-DD` | Start of period. Requires `--to`. |
-| `--to YYYY-MM-DD` | End of period. Required with `--from`. |
-| `--ids-file FILE` | Path to OriginId list file (default: `ids/ids_2.txt`). |
-| `--participants ID ...` | Space-separated OriginIds. Overrides `--ids-file`. |
-| `--format FORMAT` | Output format: `summary` (default), `json`, or `csv`. |
-| `--output FILE` | Write output to FILE instead of stdout. |
-
-**EXAMPLES**  
-```bash
-# Quick summary of last 7 days
-python -m trial.fetch --days 7
-
-# Export full month as CSV
-python -m trial.fetch --from 2026-10-01 --to 2026-10-31 --format csv --output oct.csv
-
-# Export as JSON for archiving
-python -m trial.fetch --days 30 --format json --output data.json
-```
+| `--days N` | Last N days. |
+| `--from YYYY-MM-DD` | Start of period (requires `--to`). |
+| `--to YYYY-MM-DD` | End of period. |
+| `--ids-file FILE` | OriginId list file (default: `ids/ids_2.txt`). |
+| `--participants ID ...` | Filter to specific IDs. |
+| `--format FORMAT` | `summary` (default), `json`, or `csv`. |
+| `--output FILE` | Write to FILE instead of stdout. |
 
 ---
 
-## 7. Typical daily workflow
-
-```bash
-cd reco2
-
-# Update the code
-git pull
-
-# Run the analysis report (last 7 days)
-python -m trial.analyse --days 7 --output report_$(date +%Y%m%d).txt
-
-# Review the timeline
-python -m trial.timeline --days 7
-```
-
----
-
-## 8. Troubleshooting
+## Troubleshooting
 
 | Error | Cause | Fix |
 |-------|-------|-----|
-| `TRIAL_CLIENT_ID and TRIAL_CLIENT_SECRET must be set` | Credentials not configured | Set env vars or create `.env` (§3) |
-| `ID list file not found: ids/ids_2.txt` | Participant ID file missing | Create `ids/ids_2.txt` (§4) |
-| `Invalid OriginId` | Malformed ID in the file | Check format is `XXXX-XXXX` uppercase |
-| `HTTP 401: Unauthorized` | Wrong credentials | Verify `TRIAL_CLIENT_ID` / `TRIAL_CLIENT_SECRET` with David |
-| `HTTP 403: Forbidden` | Account lacks `trial_api_user` role | Contact back-end dev to grant the role |
-| `HTTP 400: Bad request` | API parameter error | Check date formats (`YYYY-MM-DD`) and ID formats |
+| `Error: Failed to obtain access token` | Wrong credentials | Check `TRIAL_CLIENT_ID` / `TRIAL_CLIENT_SECRET` with David |
+| `Error: IDs file not found` | `ids_2.txt` not in airlock | Copy the file in from persistent storage |
+| `Input file not found: data.json` | `data.json` not yet transferred | Run the airlock fetch first and transfer the file |
+| `HTTP 401: Unauthorized` | Token rejected | Verify credentials |
+| `HTTP 403: Forbidden` | Account lacks `trial_api_user` role | Contact back-end dev |
 
-For other errors, run with the Python traceback visible (the tools print it
-automatically on unexpected exceptions) and send the output to David.
+For other errors send the full terminal output to David.

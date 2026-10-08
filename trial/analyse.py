@@ -24,6 +24,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 from .client import TrialAPIError, TrialClient, load_ids, DEFAULT_IDS_FILE
+from .fetch import load_participants_json
 from .models import EngagementRecord, ParticipantEngagement, RECOMMENDER_TYPE_NAMES
 
 # Recommender types that indicate the personalisation model is active
@@ -315,7 +316,10 @@ def main(argv: Optional[list[str]] = None) -> int:
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=__doc__,
     )
-    period_group = parser.add_mutually_exclusive_group(required=True)
+    parser.add_argument("--input", metavar="FILE",
+                        help="Read from a JSON file saved by 'trial.fetch --format json' "
+                             "instead of calling the API. Credentials are not required.")
+    period_group = parser.add_mutually_exclusive_group()
     period_group.add_argument("--days", type=int, metavar="N",
                               help="Analyse the last N days")
     period_group.add_argument("--from", dest="date_from", type=_parse_date,
@@ -330,28 +334,45 @@ def main(argv: Optional[list[str]] = None) -> int:
 
     args = parser.parse_args(argv)
 
-    if args.days is not None:
-        period_end = datetime.now(timezone.utc)
-        period_start = period_end - timedelta(days=args.days)
+    if args.input:
+        # Offline mode: read from a pre-fetched JSON file
+        if args.days or args.date_from:
+            parser.error("--input cannot be combined with --days / --from / --to")
+        try:
+            participants = load_participants_json(args.input)
+        except (FileNotFoundError, ValueError) as e:
+            print(f"Error: {e}", file=sys.stderr)
+            return 1
+        all_times = [r.time_start for p in participants for r in p.records]
+        if all_times:
+            period_start = min(all_times)
+            period_end = max(all_times)
+        else:
+            period_start = period_end = datetime.now(timezone.utc)
     else:
-        if args.date_to is None:
-            parser.error("--from requires --to")
-        period_start = args.date_from
-        period_end = args.date_to + timedelta(days=1) - timedelta(seconds=1)
-
-    try:
-        origin_ids = args.participants or load_ids(args.ids_file)
-        client = TrialClient.from_env()
-        participants = client.fetch(period_start, period_end, origin_ids=origin_ids)
-    except (FileNotFoundError, ValueError) as e:
-        print(f"Error: {e}", file=sys.stderr)
-        return 1
-    except EnvironmentError as e:
-        print(f"Error: {e}", file=sys.stderr)
-        return 1
-    except TrialAPIError as e:
-        print(f"API error: {e}", file=sys.stderr)
-        return 1
+        if args.days is None and args.date_from is None:
+            parser.error("one of --input, --days, or --from is required")
+        if args.days is not None:
+            period_end = datetime.now(timezone.utc)
+            period_start = period_end - timedelta(days=args.days)
+        else:
+            if args.date_to is None:
+                parser.error("--from requires --to")
+            period_start = args.date_from
+            period_end = args.date_to + timedelta(days=1) - timedelta(seconds=1)
+        try:
+            origin_ids = args.participants or load_ids(args.ids_file)
+            client = TrialClient.from_env()
+            participants = client.fetch(period_start, period_end, origin_ids=origin_ids)
+        except (FileNotFoundError, ValueError) as e:
+            print(f"Error: {e}", file=sys.stderr)
+            return 1
+        except EnvironmentError as e:
+            print(f"Error: {e}", file=sys.stderr)
+            return 1
+        except TrialAPIError as e:
+            print(f"API error: {e}", file=sys.stderr)
+            return 1
 
     report = analyse(participants, period_start, period_end)
 
