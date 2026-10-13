@@ -307,6 +307,88 @@ def analyse(
     else:
         lines.append(f"  No natural-lapse patterns detected (no reversion after >{LAPSE_GAP_DAYS}d gap).")
 
+    # ------------------------------------------------------------------ #
+    # 7. Mood signal
+    # ------------------------------------------------------------------ #
+    section("7. Mood signal (not currently used by recommender)")
+    lines.append("  Mood scores (1–9) are reported by participants independently of story")
+    lines.append("  engagement. This section is for clinical team review only.")
+
+    mood_records = [r for r in all_records if r.mood is not None]
+    lines.append(f"\n  Records with mood score: {len(mood_records)} / {len(all_records)}")
+
+    if not mood_records:
+        lines.append("  No mood data available in this period.")
+        return "\n".join(lines)
+
+    mood_values = [r.mood for r in mood_records]
+    lines.append(f"  Mood range: {min(mood_values)}–{max(mood_values)}  "
+                 f"Mean: {sum(mood_values)/len(mood_values):.1f}")
+
+    # Distribution
+    lines.append("")
+    lines.append("  Distribution:")
+    dist: dict[int, int] = defaultdict(int)
+    for m in mood_values:
+        dist[m] += 1
+    lines.append(f"  {'Score':>6}  {'Count':>6}  {'%':>6}  Bar")
+    lines.append(f"  {'──────':>6}  {'──────':>6}  {'──────':>6}  ───")
+    for score in range(1, 10):
+        count = dist.get(score, 0)
+        bar = "█" * round(count / len(mood_values) * 30) if mood_values else ""
+        lines.append(f"  {score:>6}  {count:>6}  {count/len(mood_values)*100:>5.1f}%  {bar}")
+
+    # Mood vs Q1 correlation
+    paired = [(r.mood, r.question1_rating) for r in mood_records if r.question1_rating is not None]
+    lines.append(f"\n  Records with both mood and Q1: {len(paired)}")
+    if len(paired) >= 3:
+        moods = [m for m, _ in paired]
+        q1s = [q for _, q in paired]
+        mean_m = sum(moods) / len(moods)
+        mean_q = sum(q1s) / len(q1s)
+        num = sum((m - mean_m) * (q - mean_q) for m, q in zip(moods, q1s))
+        den_m = sum((m - mean_m) ** 2 for m in moods) ** 0.5
+        den_q = sum((q - mean_q) ** 2 for q in q1s) ** 0.5
+        if den_m > 0 and den_q > 0:
+            r_val = num / (den_m * den_q)
+            lines.append(f"  Pearson r (mood vs Q1): {r_val:.2f}")
+            if abs(r_val) >= 0.5:
+                lines.append("  ↑ Moderate-to-strong correlation — mood and connectedness")
+                lines.append("    tend to move together in this dataset.")
+            elif abs(r_val) >= 0.25:
+                lines.append("  ↑ Weak correlation — some relationship between mood and")
+                lines.append("    connectedness scores.")
+            else:
+                lines.append("  ↑ Near-zero correlation — mood and connectedness scores")
+                lines.append("    appear largely independent in this dataset.")
+
+        # Mood quartile vs mean Q1
+        lines.append("")
+        lines.append("  Mean Q1 by mood score (do higher-mood users rate stories higher?):")
+        lines.append(f"  {'Mood':>5}  {'N':>4}  {'Mean Q1':>8}")
+        lines.append(f"  {'─────':>5}  {'────':>4}  {'────────':>8}")
+        q1_by_mood: dict[int, list[int]] = defaultdict(list)
+        for m, q in paired:
+            q1_by_mood[m].append(q)
+        for score in range(1, 10):
+            qs = q1_by_mood.get(score, [])
+            if qs:
+                lines.append(f"  {score:>5}  {len(qs):>4}  {sum(qs)/len(qs):>8.1f}")
+
+    # Per-participant mood summary
+    lines.append("")
+    lines.append("  Per-participant mood summary:")
+    lines.append(f"  {'Origin ID':<14} {'Mood N':>7} {'Mean mood':>10} {'Mean Q1':>8}")
+    lines.append(f"  {'──────────────':<14} {'──────':>7} {'─────────':>10} {'───────':>8}")
+    for p in sorted(participants, key=lambda x: x.origin_id):
+        p_moods = [r.mood for r in p.records if r.mood is not None]
+        p_q1s = [r.question1_rating for r in p.records if r.question1_rating is not None]
+        if not p_moods:
+            continue
+        mean_mood = f"{sum(p_moods)/len(p_moods):.1f}"
+        mean_q1 = f"{sum(p_q1s)/len(p_q1s):.1f}" if p_q1s else "—"
+        lines.append(f"  {p.origin_id:<14} {len(p_moods):>7} {mean_mood:>10} {mean_q1:>8}")
+
     return "\n".join(lines)
 
 

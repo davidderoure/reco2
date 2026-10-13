@@ -106,12 +106,12 @@ def render_ascii(participant: ParticipantEngagement) -> str:
     )
     lines.append(f"{'─' * 72}")
     lines.append(
-        f"  {'Date':<12} {'Types':<{TYPE_COL_WIDTH}} {'Q1':>4}  {'Comp':>5}  "
+        f"  {'Date':<12} {'Types':<{TYPE_COL_WIDTH}} {'Q1':>4}  {'Mood':>5}  {'Comp':>5}  "
         f"{'Stories':>7}  Notes"
     )
     lines.append(
         f"  {'────────────':<12} {'──────────────':<{TYPE_COL_WIDTH}} {'──':>4}  "
-        f"{'─────':>5}  {'───────':>7}  ─────"
+        f"{'────':>5}  {'─────':>5}  {'───────':>7}  ─────"
     )
 
     # Track reversion for flagging
@@ -122,6 +122,8 @@ def render_ascii(participant: ParticipantEngagement) -> str:
         date_str = sess[0].time_start.strftime("%Y-%m-%d")
         type_str = " ".join(_type_code(r) for r in sess)[:TYPE_COL_WIDTH].ljust(TYPE_COL_WIDTH)
         q1 = _q1_summary(sess)
+        mood_vals = [r.mood for r in sess if r.mood is not None]
+        mood_str = f"{sum(mood_vals)/len(mood_vals):.1f}" if mood_vals else "—"
         pct = _pct_summary(sess)
         n_stories = len(set(r.story_id for r in sess))
 
@@ -146,16 +148,25 @@ def render_ascii(participant: ParticipantEngagement) -> str:
 
         note_str = "  ".join(notes)
         lines.append(
-            f"  {date_str:<12} {type_str:<{TYPE_COL_WIDTH}} {q1:>4}  {pct:>5}  "
+            f"  {date_str:<12} {type_str:<{TYPE_COL_WIDTH}} {q1:>4}  {mood_str:>5}  {pct:>5}  "
             f"{n_stories:>7}  {note_str}"
         )
 
-    # Q1 sparkline
+    # Q1 and mood sparklines
     lines.append("")
-    q1_scores = [r.question1_rating for r in sorted(p.records, key=lambda r: r.time_start)]
-    spark = _sparkline(q1_scores, 60)
-    lines.append(f"  Q1 scores ({len(q1_scores)} records, · = no score):")
-    lines.append(f"  [{spark}]")
+    sorted_records = sorted(p.records, key=lambda r: r.time_start)
+    q1_scores = [r.question1_rating for r in sorted_records]
+    spark_q1 = _sparkline(q1_scores, 60)
+    lines.append(f"  Q1 scores  ({len(q1_scores)} records, · = no score):")
+    lines.append(f"  [{spark_q1}]")
+    mood_scores = [r.mood for r in sorted_records]
+    if any(m is not None for m in mood_scores):
+        # Mood is 1-9; rescale to 1-5 for sparkline chars
+        rescaled = [round((m - 1) / 8 * 4) + 1 if m is not None else None for m in mood_scores]
+        spark_mood = _sparkline(rescaled, 60)
+        n_mood = sum(1 for m in mood_scores if m is not None)
+        lines.append(f"  Mood (1–9) ({n_mood} records, · = no score):")
+        lines.append(f"  [{spark_mood}]")
 
     # Session pattern
     patterns = []
@@ -214,11 +225,13 @@ def render_html(participants: list[ParticipantEngagement], period_start: datetim
             if aborts:
                 notes.append(f'<span class="abort">{aborts}✕ abort</span>')
 
+            mood_vals_sess = [r.mood for r in sess if r.mood is not None]
+            mood_html = f"{sum(mood_vals_sess)/len(mood_vals_sess):.1f}" if mood_vals_sess else "—"
             rows.append(
                 f'<tr class="{row_class}">'
                 f'<td>{date_str}</td>'
                 f'<td class="mono">{type_str}</td>'
-                f'<td>{q1}</td><td>{pct}</td><td>{n_stories}</td>'
+                f'<td>{q1}</td><td>{mood_html}</td><td>{pct}</td><td>{n_stories}</td>'
                 f'<td>{"  ".join(notes)}</td></tr>'
             )
 
@@ -232,6 +245,18 @@ def render_html(participants: list[ParticipantEngagement], period_start: datetim
             else:
                 dots.append(f'<span class="dot dot-{s}" title="Q1={s}">{s}</span>')
         dot_html = "".join(dots)
+
+        mood_dots = []
+        for r in sorted_records:
+            m = r.mood
+            if m is None:
+                mood_dots.append('<span class="dot dot-none" title="no mood">·</span>')
+            else:
+                # Map 1-9 to CSS classes 1-5 for shared dot styling
+                cls = max(1, min(5, round((m - 1) / 8 * 4) + 1))
+                mood_dots.append(f'<span class="dot dot-{cls}" title="mood={m}">{m}</span>')
+        mood_dot_html = "".join(mood_dots)
+        has_mood = any(r.mood is not None for r in sorted_records)
 
         q1_scores_all = [r.question1_rating for r in sorted_records if r.question1_rating is not None]
         mean_q1 = f"{sum(q1_scores_all)/len(q1_scores_all):.1f}" if q1_scores_all else "—"
@@ -248,10 +273,11 @@ def render_html(participants: list[ParticipantEngagement], period_start: datetim
   <div class="summary">{n_total} records &nbsp;|&nbsp; {len(sessions)} sessions &nbsp;|&nbsp;
     personalised: {n_pers}/{n_total} &nbsp;|&nbsp; mean Q1: {mean_q1}</div>
   <table>
-    <thead><tr><th>Session start</th><th>Types</th><th>Q1</th><th>Comp</th><th>Stories</th><th>Notes</th></tr></thead>
+    <thead><tr><th>Session start</th><th>Types</th><th>Q1</th><th>Mood</th><th>Comp</th><th>Stories</th><th>Notes</th></tr></thead>
     <tbody>{"".join(rows)}</tbody>
   </table>
   <div class="sparkrow"><strong>Q1 scores:</strong> {dot_html}</div>
+  {'<div class="sparkrow"><strong>Mood (1–9):</strong> ' + mood_dot_html + '</div>' if has_mood else ''}
   <div class="pattern"><strong>Session pattern:</strong> <span class="mono">{pattern_str}</span></div>
 </div>""")
 
