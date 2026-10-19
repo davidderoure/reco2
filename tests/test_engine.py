@@ -490,3 +490,73 @@ def test_get_recommendations_passes_user_type():
     recs = engine.get_recommendations("test-u1", user_type=1)
     assert len(recs) == 6
     assert len({sid for sid, _ in recs}) == 6
+
+
+# ---------------------------------------------------------------------------
+# Story deletion tests
+# ---------------------------------------------------------------------------
+
+def test_cold_start_excludes_deleted_stories():
+    """A new user must never receive a story that has been removed from the catalogue.
+
+    Regression for the bug where _cohort_average_ranking returned deleted story IDs
+    because it only consulted population history, not the current catalogue.
+    """
+    catalogue = make_catalogue(n=20)
+    engine = RecommenderEngine(catalogue)
+
+    # Existing users have rated a story that will be deleted
+    now = time.time()
+    for i in range(5):
+        engine.record_answered_question(f"existing-{i}", "s0", [5, 3, 3, 3], timestamp=now)
+
+    # Remove s0 from the catalogue
+    stories_without_s0 = [s for s in catalogue.all_stories() if s.story_id != "s0"]
+    catalogue.load(stories_without_s0)
+
+    # A brand-new user should never receive s0
+    recs = engine.get_recommendations("brand-new-user")
+    ids = [sid for sid, _ in recs]
+    assert "s0" not in ids, "deleted story s0 must not appear in cold-start recommendations"
+
+
+def test_reengagement_excludes_deleted_stories():
+    """A returning user must never receive a story they previously rated that has since
+    been deleted, even via the re-engagement (catalogue-exhaustion) path.
+    """
+    catalogue = make_catalogue(n=8)
+    engine = RecommenderEngine(catalogue)
+    user_id = "u1"
+    now = time.time()
+
+    # User has rated all 8 stories (triggers re-engagement path)
+    for i in range(8):
+        engine.record_answered_question(user_id, f"s{i}", [5, 3, 3, 3], timestamp=now)
+
+    # Delete s0 and s1 from the catalogue
+    remaining = [s for s in catalogue.all_stories() if s.story_id not in {"s0", "s1"}]
+    catalogue.load(remaining)
+
+    recs = engine.get_recommendations(user_id)
+    ids = [sid for sid, _ in recs]
+    assert "s0" not in ids, "deleted story s0 must not appear in re-engagement recommendations"
+    assert "s1" not in ids, "deleted story s1 must not appear in re-engagement recommendations"
+
+
+def test_cohort_ranking_excludes_deleted_stories():
+    """_cohort_average_ranking must not return story IDs absent from the catalogue."""
+    catalogue = make_catalogue(n=10)
+    engine = RecommenderEngine(catalogue)
+
+    now = time.time()
+    for i in range(3):
+        engine.record_answered_question(f"u{i}", "s0", [5, 3, 3, 3], timestamp=now)
+        engine.record_answered_question(f"u{i}", "s1", [4, 3, 3, 3], timestamp=now)
+
+    # Remove s0 from catalogue
+    remaining = [s for s in catalogue.all_stories() if s.story_id != "s0"]
+    catalogue.load(remaining)
+
+    ranking = engine._cohort_average_ranking(set())
+    assert "s0" not in ranking, "_cohort_average_ranking must not include deleted stories"
+    assert "s1" in ranking, "s1 is still in catalogue and should still be ranked"

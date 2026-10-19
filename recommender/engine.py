@@ -666,6 +666,8 @@ class RecommenderEngine:
             for story_id, entry in other.story_history.items():
                 if story_id in excluded or entry.connectedness is None:
                     continue
+                if not self.catalogue.get(story_id):
+                    continue  # story removed from catalogue
                 sums[story_id] = sums.get(story_id, 0.0) + entry.connectedness
                 counts[story_id] = counts.get(story_id, 0) + 1
         averages = [(sums[sid] / counts[sid], sid) for sid in sums]
@@ -688,7 +690,9 @@ class RecommenderEngine:
             (
                 (entry.connectedness, story_id)
                 for story_id, entry in user.story_history.items()
-                if entry.connectedness is not None and story_id not in chosen
+                if entry.connectedness is not None
+                and story_id not in chosen
+                and self.catalogue.get(story_id)
             ),
             reverse=True,
         )
