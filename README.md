@@ -59,7 +59,7 @@ there's no real persistence, just enough to exercise the RPCs.
 ## Testing
 
 ```bash
-pytest                              # unit + integration + concurrency + restart tests (75 tests)
+pytest                              # unit + integration + concurrency + restart tests (84 tests)
 python3 -m simulation.simulate      # synthetic population, response-time percentiles, recommender-vs-random effectiveness
 python3 -m simulation.journeys      # per-user round-by-round transcripts → simulation/journeys_output.md
 python3 -m simulation.journeys --noise       # same with 15% engagement interruption noise
@@ -233,6 +233,11 @@ the next interval — the existing population is left untouched.
 
 ## Known limitations / things to check during review
 
+- **Stories removed from the catalogue** are excluded from all recommendation
+  paths (cold-start cohort ranking and re-engagement) on the next catalogue
+  refresh. Engagement history for deleted stories is retained in user models
+  (it influenced past affinity) but the deleted story will never be recommended
+  again.
 - **Collaborative filtering is weak early in the trial** — it needs
   multiple users to have rated overlapping stories, which won't be true
   on day one. This is expected, not a bug.
