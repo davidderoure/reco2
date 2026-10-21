@@ -613,3 +613,87 @@ def test_preserved_batch_excludes_deleted_stories():
     )
     assert len(second_ids) == 6, "preserved batch must still return 6 stories after deletion topup"
     assert len(set(second_ids)) == 6
+
+
+# ---------------------------------------------------------------------------
+# Tag edge-case tests
+# ---------------------------------------------------------------------------
+
+def test_singleton_tag_gives_strong_affinity():
+    """A tag used by exactly one story should produce a high affinity score for
+    users who rated that story well, and recommendations should continue to work.
+    """
+    catalogue = Catalogue()
+    # s0 has a unique tag shared by no other story; large enough catalogue to
+    # stay well above the re-engagement ramp threshold (REENGAGEMENT_RAMP_THRESHOLD=18)
+    catalogue.load([
+        Story(story_id="s0", title="Unique", tags=["rare-tag"], created_at=0),
+        *[Story(story_id=f"s{i}", title=f"S{i}", tags=["common"], created_at=i)
+          for i in range(1, 30)],
+    ])
+    engine = RecommenderEngine(catalogue)
+    now = time.time()
+    engine.record_answered_question("u1", "s0", [5, 3, 3, 3], timestamp=now)
+
+    user = engine.get_or_create_user("u1")
+    assert "rare-tag" in user.tag_affinity, "singleton tag must appear in affinity"
+    assert user.tag_affinity["rare-tag"] > 0, "singleton tag affinity must be positive"
+
+    # Recommendations must still return 6 unique stories without error
+    recs = engine.get_recommendations("u1")
+    assert len(recs) == 6
+    assert len({sid for sid, _ in recs}) == 6
+
+
+def test_unused_tag_has_no_effect():
+    """A tag defined in the vocabulary but not used by any story in the catalogue
+    should never appear in any user's tag_affinity and should not affect recommendations.
+    """
+    catalogue = Catalogue()
+    # All stories use "common" only; "orphan-tag" exists nowhere
+    catalogue.load([
+        Story(story_id=f"s{i}", title=f"S{i}", tags=["common"], created_at=i)
+        for i in range(20)
+    ])
+    engine = RecommenderEngine(catalogue)
+    now = time.time()
+    engine.record_answered_question("u1", "s0", [5, 3, 3, 3], timestamp=now)
+
+    user = engine.get_or_create_user("u1")
+    assert "orphan-tag" not in user.tag_affinity, "unused tag must not appear in affinity"
+
+    recs = engine.get_recommendations("u1")
+    assert len(recs) == 6
+
+
+def test_removed_tag_drops_out_of_affinity_on_next_event():
+    """If a tag is removed from all catalogue stories mid-trial, a user's affinity
+    for it must not affect scoring — ContentBasedStrategy scores only current tags.
+    After the user's next engagement event the tag disappears from tag_affinity entirely.
+    """
+    catalogue = Catalogue()
+    catalogue.load([
+        Story(story_id="s0", title="S0", tags=["soon-removed", "keeper"], created_at=0),
+        *[Story(story_id=f"s{i}", title=f"S{i}", tags=["keeper"], created_at=i)
+          for i in range(1, 20)],
+    ])
+    engine = RecommenderEngine(catalogue)
+    now = time.time()
+    engine.record_answered_question("u1", "s0", [5, 3, 3, 3], timestamp=now)
+
+    user = engine.get_or_create_user("u1")
+    assert "soon-removed" in user.tag_affinity
+
+    # Remove the tag from the catalogue (simulate a CMS change + refresh)
+    catalogue.load([
+        Story(story_id="s0", title="S0", tags=["keeper"], created_at=0),
+        *[Story(story_id=f"s{i}", title=f"S{i}", tags=["keeper"], created_at=i)
+          for i in range(1, 20)],
+    ])
+
+    # Trigger affinity recomputation via a new engagement event
+    engine.record_answered_question("u1", "s1", [4, 3, 3, 3], timestamp=now + 1)
+    user = engine.get_or_create_user("u1")
+    assert "soon-removed" not in user.tag_affinity, (
+        "removed tag must disappear from affinity after next recomputation"
+    )

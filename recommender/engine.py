@@ -279,6 +279,17 @@ class RecommenderEngine:
         exponential decay on event age. Recomputing from the (bounded)
         history each time avoids drift from incremental EMA updates, and
         history size is capped by catalogue size, not interaction count.
+
+        Tag edge-case behaviour:
+        - Singleton tag (one story): that story scores highly for users who
+          rated it well — correct, it's a strong niche-preference signal.
+        - Unused tag (no stories): never enters tag_affinity, no effect.
+        - Removed tag (CMS change): orphaned affinity weight persists until
+          the next recomputation, but ContentBasedStrategy scores only
+          current story tags so it contributes nothing. The weight disappears
+          on the next engagement event. Mid-trial tag removal silently shifts
+          recommendation behaviour for users who engaged with affected stories
+          — treat as a "don't do lightly" CMS operation.
         """
         now = time.time()
         tag_weighted_sum: dict[str, float] = {}
