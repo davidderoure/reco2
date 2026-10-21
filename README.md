@@ -265,7 +265,19 @@ the next interval — the existing population is left untouched.
   handlers to async (via `grpc.aio`) would reduce thread-pool pressure further
   under burst load — worth revisiting if the trial grows.
 - **History trimming is on** (`MAX_HISTORY_SIZE = 70` in `engine.py`):
-  calibrated for the 200-story catalogue expected at go-live (confirmed by load
-  testing). Oldest entries are evicted after each scored answer; tag affinity is
-  recomputed from survivors so no signal is lost. Adjust the constant if the
-  catalogue or engagement patterns change significantly.
+  calibrated for a 200-story catalogue (≈35% of catalogue size — the target
+  range is 30–40%). Oldest entries are evicted after each scored answer; tag
+  affinity is recomputed from survivors so no signal is lost. **Before launch:**
+  confirm the catalogue size with the story team and set `MAX_HISTORY_SIZE`
+  accordingly. Increasing mid-trial is safe; decreasing causes a gradual
+  per-user drift that self-corrects within a session or two.
+- **Story IDs must be stable for the lifetime of the trial.** If a story is
+  re-imported or migrated in the CMS with a new ID, the recommender loses all
+  engagement history for it and treats it as a brand-new story. This includes
+  bulk re-imports. Story text and metadata edits are invisible to the
+  recommender. Tag additions are safe; tag removals cause a gradual reduction
+  in ranking for affected stories (self-correcting) — treat as a deliberate
+  editorial decision rather than a routine CMS operation.
+- **Catalogue size growth**: the recommender is tuned for ~200 stories. If the
+  catalogue grows significantly during the trial, revisit `MAX_HISTORY_SIZE`
+  (scale proportionally) and the `LoadUserModel` pagination note above.
