@@ -390,6 +390,8 @@ class RecommenderEngine:
         last_batch = user.recent_batches[0]
         preserved = []
         for story_id in last_batch:
+            if not self.catalogue.get(story_id):
+                continue  # story removed from catalogue since last visit
             entry = user.story_history.get(story_id)
             interacted_without_scoring = (
                 entry is not None
@@ -437,6 +439,10 @@ class RecommenderEngine:
         """Update user model bookkeeping after producing a batch."""
         for story_id, _ in results:
             user.recommended_story_ids.add(story_id)
+            # recommended_story_ids is implicitly bounded by the catalogue size:
+            # MAX_HISTORY_SIZE caps story_history, and _ensure_minimum_freshness
+            # only needs to know "ever shown", so at trial scale (~200 stories)
+            # this set stays small. No explicit trim needed.
         new_batch = [sid for sid, _ in results]
         user.recent_batches = ([new_batch] + user.recent_batches)[:RECENT_BATCHES_TO_EXCLUDE]
         user.last_recommendation_request_at = timestamp
@@ -558,7 +564,9 @@ class RecommenderEngine:
             (
                 (entry.connectedness, story_id)
                 for story_id, entry in user.story_history.items()
-                if story_id in seen and story_id not in chosen
+                if story_id in seen
+                and story_id not in chosen
+                and self.catalogue.get(story_id)
             ),
             reverse=True,
         )

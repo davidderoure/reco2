@@ -560,3 +560,56 @@ def test_cohort_ranking_excludes_deleted_stories():
     ranking = engine._cohort_average_ranking(set())
     assert "s0" not in ranking, "_cohort_average_ranking must not include deleted stories"
     assert "s1" in ranking, "s1 is still in catalogue and should still be ranked"
+
+
+def test_reengagement_ramp_excludes_deleted_stories():
+    """_apply_reengagement_ramp must not re-serve a story the user rated that has since
+    been deleted, even when the unread pool is near exhaustion.
+    """
+    # Small catalogue so the ramp activates
+    catalogue = make_catalogue(n=10)
+    engine = RecommenderEngine(catalogue)
+    user_id = "u1"
+    now = time.time()
+
+    # Rate 8 out of 10 stories (unread pool = 2, below REENGAGEMENT_RAMP_THRESHOLD)
+    for i in range(8):
+        engine.record_answered_question(user_id, f"s{i}", [5, 3, 3, 3], timestamp=now)
+
+    # Delete one of the rated stories
+    remaining = [s for s in catalogue.all_stories() if s.story_id != "s0"]
+    catalogue.load(remaining)
+
+    recs = engine.get_recommendations(user_id)
+    ids = [sid for sid, _ in recs]
+    assert "s0" not in ids, "deleted story s0 must not appear via reengagement ramp"
+
+
+def test_preserved_batch_excludes_deleted_stories():
+    """If a story in the user's last batch is deleted before their return visit,
+    it must be silently dropped from the preserved batch and replaced.
+    """
+    catalogue = make_catalogue(n=20)
+    engine = RecommenderEngine(catalogue)
+    user_id = "u1"
+    now = time.time()
+
+    # First visit — get a batch (no score yet, so next visit will preserve it)
+    first_batch = engine.get_recommendations(user_id, timestamp=now)
+    first_ids = [sid for sid, _ in first_batch]
+    assert len(first_ids) == 6
+
+    # Delete one of the recommended stories before the user returns
+    deleted = first_ids[0]
+    remaining = [s for s in catalogue.all_stories() if s.story_id != deleted]
+    catalogue.load(remaining)
+
+    # User returns without scoring — triggers batch preservation path
+    second_batch = engine.get_recommendations(user_id, timestamp=now + 10)
+    second_ids = [sid for sid, _ in second_batch]
+
+    assert deleted not in second_ids, (
+        f"deleted story {deleted} must not appear in the preserved batch"
+    )
+    assert len(second_ids) == 6, "preserved batch must still return 6 stories after deletion topup"
+    assert len(set(second_ids)) == 6
