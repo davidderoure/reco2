@@ -37,6 +37,25 @@ Against the real C# `StoryService` directly:
 STORY_SERVICE_ADDR=story-service:50052 GRPC_SERVER_PORT=50051 python3 server.py
 ```
 
+Two optional editorial controls can be set before launch:
+
+```bash
+# Seed cold-start ranking from a curated story list (story_id:weight, 0-1)
+COLD_START_SEED=s042:0.9,s017:0.7,s003:0.5 python3 server.py
+
+# Promote specific stories within the topical slot
+BOOSTED_STORY_IDS=s042,s017 python3 server.py
+```
+
+`COLD_START_SEED` pre-populates the cohort popularity ranking so cold-start
+users see editorially chosen stories rather than random picks. Each seed entry
+contributes one synthetic "vote"; real trial engagement progressively
+outweighs it as data accumulates. Set from usability-trial analytics before
+the main trial launch.
+
+`BOOSTED_STORY_IDS` activates the boosted slot: listed stories are prioritised
+within the topical slot. Used to promote newly published or seasonal content.
+
 The catalogue (stories and their tags) is re-fetched periodically in the
 background — tags can change during the trial (including user-suggested
 free-text tags), so a long-running process needs to pick that up without a
@@ -59,7 +78,7 @@ there's no real persistence, just enough to exercise the RPCs.
 ## Testing
 
 ```bash
-pytest                              # unit + integration + concurrency + restart tests (89 tests)
+pytest                              # unit + integration + concurrency + restart tests (99 tests)
 python3 -m simulation.simulate      # synthetic population, response-time percentiles, recommender-vs-random effectiveness
 python3 -m simulation.journeys      # per-user round-by-round transcripts → simulation/journeys_output.md
 python3 -m simulation.journeys --noise       # same with 15% engagement interruption noise

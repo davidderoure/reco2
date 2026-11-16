@@ -1,3 +1,4 @@
+import random
 import time
 
 from recommender.catalogue import Catalogue
@@ -10,6 +11,8 @@ from recommender.engine import (
     SLOT_COUNTS,
     WILDCARD,
     RecommenderEngine,
+    parse_boosted_story_ids,
+    parse_cold_start_seed,
 )
 from recommender.models import Story
 
@@ -696,4 +699,108 @@ def test_removed_tag_drops_out_of_affinity_on_next_event():
     user = engine.get_or_create_user("u1")
     assert "soon-removed" not in user.tag_affinity, (
         "removed tag must disappear from affinity after next recomputation"
+    )
+
+
+# ---------------------------------------------------------------------------
+# COLD_START_SEED env var
+# ---------------------------------------------------------------------------
+
+def test_parse_cold_start_seed_valid():
+    seed = parse_cold_start_seed("s042:0.9,s017:0.7,s003:0.5")
+    assert seed == {"s042": 0.9, "s017": 0.7, "s003": 0.5}
+
+
+def test_parse_cold_start_seed_clamps_weight():
+    seed = parse_cold_start_seed("s001:1.5,s002:-0.3")
+    assert seed["s001"] == 1.0
+    assert seed["s002"] == 0.0
+
+
+def test_parse_cold_start_seed_skips_invalid():
+    seed = parse_cold_start_seed("s001:0.8,bad,s002:notanumber,:0.5")
+    assert list(seed.keys()) == ["s001"]
+
+
+def test_parse_cold_start_seed_empty():
+    assert parse_cold_start_seed("") == {}
+
+
+def test_cold_start_seed_promotes_seeded_stories():
+    """Seeded stories should appear in cold-start recommendations for a new user."""
+    catalogue = Catalogue()
+    stories = [Story(story_id=f"s{i:03d}", title=f"S{i}", tags=["t"], created_at=i) for i in range(30)]
+    catalogue.load(stories)
+
+    # Seed three specific stories with high weights
+    seed = {"s010": 0.9, "s020": 0.85, "s025": 0.8}
+    engine = RecommenderEngine(catalogue, cold_start_seed=seed, rng=random.Random(42))
+
+    recs = engine.get_recommendations("new_user")
+    ids = [sid for sid, _ in recs]
+    assert len(ids) == 6
+    # At least one seeded story should appear — cohort ranking has only seeded
+    # stories so they form the entire popularity pool.
+    assert any(sid in seed for sid in ids), f"no seeded story in {ids}"
+
+
+def test_cold_start_seed_fades_with_real_data():
+    """As real cohort data accumulates, the seed's influence diminishes."""
+    catalogue = Catalogue()
+    stories = [Story(story_id=f"s{i:03d}", title=f"S{i}", tags=["t"], created_at=i) for i in range(30)]
+    catalogue.load(stories)
+
+    # Seed story s010 with low weight; real users strongly prefer s001
+    seed = {"s010": 0.3}
+    engine = RecommenderEngine(catalogue, cold_start_seed=seed, rng=random.Random(42))
+
+    # Give 10 real users a high connectedness score for s001
+    now = time.time()
+    for i in range(10):
+        engine.record_answered_question(f"u{i}", "s001", [5, 3, 3, 3], timestamp=now)
+
+    ranking = engine._cohort_average_ranking(excluded=set())
+    # s001 (mean 1.0, 10 votes) should rank above s010 (mean 0.3, 1 synthetic vote)
+    assert ranking.index("s001") < ranking.index("s010"), (
+        "real data should outrank seed as evidence accumulates"
+    )
+
+
+# ---------------------------------------------------------------------------
+# BOOSTED_STORY_IDS env var
+# ---------------------------------------------------------------------------
+
+def test_parse_boosted_story_ids_valid():
+    assert parse_boosted_story_ids("s042,s017,s003") == ["s042", "s017", "s003"]
+
+
+def test_parse_boosted_story_ids_empty():
+    assert parse_boosted_story_ids("") == []
+
+
+def test_parse_boosted_story_ids_strips_whitespace():
+    assert parse_boosted_story_ids(" s042 , s017 ") == ["s042", "s017"]
+
+
+def test_boosted_story_ids_appear_in_topical_slot():
+    """Stories in BOOSTED_STORY_IDS should be prioritised by the topical strategy."""
+    from recommender.models import TOPICAL as TOPICAL_TYPE
+
+    catalogue = Catalogue()
+    now = time.time()
+    # All stories at the same timestamp to remove topical recency preference
+    stories = [Story(story_id=f"s{i:03d}", title=f"S{i}", tags=["t"], created_at=now) for i in range(30)]
+    catalogue.load(stories)
+
+    boosted = ["s005", "s010"]
+    engine = RecommenderEngine(catalogue, boosted_story_ids=boosted, rng=random.Random(42))
+
+    # Give the user a history so we're not in cold-start and topical slot runs
+    for i in range(5):
+        engine.record_answered_question("u1", f"s{i:03d}", [3, 3, 3, 3], timestamp=now - i)
+
+    recs = engine.get_recommendations("u1", timestamp=now + 1)
+    ids = [sid for sid, _ in recs]
+    assert any(sid in boosted for sid in ids), (
+        f"no boosted story in recommendations {ids}"
     )

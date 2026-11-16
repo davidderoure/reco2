@@ -9,6 +9,7 @@ with conservative defaults, called out in comments below.
 from __future__ import annotations
 
 import math
+import os
 import random
 import threading
 import time
@@ -88,6 +89,39 @@ HIGH_ENGAGEMENT_SCORE_THRESHOLD = 4  # on the 1-5 scale
 MAX_HISTORY_SIZE: int | None = 70
 
 
+def parse_cold_start_seed(env_value: str) -> dict[str, float]:
+    """Parse COLD_START_SEED env var into a {story_id: weight} dict.
+
+    Format: ``s042:0.9,s017:0.7,...``  — story IDs with 0-1 weights.
+    Invalid entries are silently skipped so a misconfigured var degrades
+    gracefully to no seeding rather than crashing the server.
+    """
+    result: dict[str, float] = {}
+    for token in env_value.split(","):
+        token = token.strip()
+        if not token:
+            continue
+        parts = token.split(":", 1)
+        if len(parts) != 2:
+            continue
+        story_id, weight_str = parts[0].strip(), parts[1].strip()
+        try:
+            weight = float(weight_str)
+        except ValueError:
+            continue
+        if story_id:
+            result[story_id] = max(0.0, min(1.0, weight))
+    return result
+
+
+def parse_boosted_story_ids(env_value: str) -> list[str]:
+    """Parse BOOSTED_STORY_IDS env var into a list of story IDs.
+
+    Format: ``s042,s017,...``  — comma-separated story IDs.
+    """
+    return [s.strip() for s in env_value.split(",") if s.strip()]
+
+
 def _normalize_score(score_1_to_5: int) -> float:
     """Map a 1-5 connectedness score onto 0-1."""
     return (score_1_to_5 - 1) / 4.0
@@ -98,6 +132,7 @@ class RecommenderEngine:
         self,
         catalogue: Catalogue,
         boosted_story_ids: list[str] | None = None,
+        cold_start_seed: dict[str, float] | None = None,
         rng: random.Random | None = None,
     ) -> None:
         self.catalogue = catalogue
@@ -105,6 +140,9 @@ class RecommenderEngine:
         self._population_lock = threading.Lock()
         self.rng = rng or random.Random()
         self._rng_lock = threading.Lock()
+        # cold_start_seed: {story_id: weight} from COLD_START_SEED env var.
+        # Used as a pre-population synthetic cohort when real trial data is sparse.
+        self.cold_start_seed: dict[str, float] = cold_start_seed or {}
         self.strategies = {
             CONTENT_BASED: ContentBasedStrategy(rng=random.Random(rng.randint(0, 2**32) if rng else None)),
             COLLABORATIVE: CollaborativeStrategy(),
@@ -689,6 +727,17 @@ class RecommenderEngine:
                     continue  # story removed from catalogue
                 sums[story_id] = sums.get(story_id, 0.0) + entry.connectedness
                 counts[story_id] = counts.get(story_id, 0) + 1
+
+        # Blend in the cold-start seed when real cohort data is thin.
+        # The seed contributes one synthetic "vote" per story, which the
+        # real population progressively drowns out as engagement accumulates.
+        if self.cold_start_seed:
+            for story_id, weight in self.cold_start_seed.items():
+                if story_id in excluded or not self.catalogue.get(story_id):
+                    continue
+                sums[story_id] = sums.get(story_id, 0.0) + weight
+                counts[story_id] = counts.get(story_id, 0) + 1
+
         averages = [(sums[sid] / counts[sid], sid) for sid in sums]
         averages.sort(reverse=True)
         return [sid for _, sid in averages]

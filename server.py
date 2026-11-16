@@ -22,7 +22,7 @@ import recommender_pb2_grpc
 from google.protobuf import empty_pb2
 
 from recommender.catalogue import Catalogue
-from recommender.engine import RecommenderEngine
+from recommender.engine import RecommenderEngine, parse_boosted_story_ids, parse_cold_start_seed
 from story_client import FakeStoryClient, StoryClient
 
 GRPC_SERVER_PORT = os.getenv("GRPC_SERVER_PORT", "50051")
@@ -231,7 +231,13 @@ def build_engine():
     catalogue = story_client.fetch_catalogue()
     print(f"Loaded catalogue: {len(catalogue)} stories")
 
-    engine = RecommenderEngine(catalogue)
+    cold_start_seed = parse_cold_start_seed(os.getenv("COLD_START_SEED", ""))
+    boosted_story_ids = parse_boosted_story_ids(os.getenv("BOOSTED_STORY_IDS", ""))
+    if cold_start_seed:
+        print(f"COLD_START_SEED: {len(cold_start_seed)} stories")
+    if boosted_story_ids:
+        print(f"BOOSTED_STORY_IDS: {boosted_story_ids}")
+    engine = RecommenderEngine(catalogue, boosted_story_ids=boosted_story_ids or None, cold_start_seed=cold_start_seed or None)
     users = story_client.load_all_user_models()
     engine.load_population(users)
     print(f"Loaded {len(users)} persisted user models")
