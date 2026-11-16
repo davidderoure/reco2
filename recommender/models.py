@@ -82,6 +82,10 @@ class UserModel:
     # get_recommendations to decide whether to preserve the previous batch
     # or generate a fresh one.
     has_new_score_since_last_request: bool = False
+    # Counts consecutive visits where the previous batch was preserved without
+    # a new score. Reset to zero whenever a fresh batch is generated or a score
+    # arrives. Not persisted — resets harmlessly on service restart.
+    preserved_visit_count: int = 0
 
     def to_json(self) -> str:
         return json.dumps({

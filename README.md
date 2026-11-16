@@ -78,7 +78,7 @@ there's no real persistence, just enough to exercise the RPCs.
 ## Testing
 
 ```bash
-pytest                              # unit + integration + concurrency + restart tests (99 tests)
+pytest                              # unit + integration + concurrency + restart tests (101 tests)
 python3 -m simulation.simulate      # synthetic population, response-time percentiles, recommender-vs-random effectiveness
 python3 -m simulation.journeys      # per-user round-by-round transcripts → simulation/journeys_output.md
 python3 -m simulation.journeys --noise       # same with 15% engagement interruption noise
@@ -254,6 +254,11 @@ the next interval — the existing population is left untouched.
 
 ## Known limitations / things to check during review
 
+- **Skimmer / low-engagement users** who repeatedly open the app without
+  scoring a story will have their preserved batch expire after
+  `MAX_PRESERVED_VISITS` (N=3) consecutive unscored visits, at which point a
+  fresh set is generated. Without this, batch preservation would hold them on
+  the same 6 stories indefinitely.
 - **Stories removed from the catalogue** are excluded from all recommendation
   paths (cold-start cohort ranking and re-engagement) on the next catalogue
   refresh. Engagement history for deleted stories is retained in user models

@@ -804,3 +804,66 @@ def test_boosted_story_ids_appear_in_topical_slot():
     assert any(sid in boosted for sid in ids), (
         f"no boosted story in recommendations {ids}"
     )
+
+
+# ---------------------------------------------------------------------------
+# Stale-batch expiry (MAX_PRESERVED_VISITS)
+# ---------------------------------------------------------------------------
+
+def test_stale_batch_expires_after_max_preserved_visits():
+    """A user who repeatedly visits without scoring should get a fresh batch
+    after MAX_PRESERVED_VISITS preserved returns, not the same 6 stories forever.
+    """
+    from recommender.engine import MAX_PRESERVED_VISITS
+
+    catalogue = make_catalogue(30)
+    engine = RecommenderEngine(catalogue, rng=random.Random(1))
+    now = time.time()
+
+    # Give the user one score so they have a batch to preserve
+    first_recs = engine.get_recommendations("u1", timestamp=now)
+    first_ids = frozenset(sid for sid, _ in first_recs)
+    scored_id = first_recs[0][0]
+    engine.record_answered_question("u1", scored_id, [4, 3, 3, 3], timestamp=now + 1)
+
+    # Next visit produces a fresh batch (score arrived)
+    second_recs = engine.get_recommendations("u1", timestamp=now + 86400)
+    second_ids = frozenset(sid for sid, _ in second_recs)
+
+    # Now visit MAX_PRESERVED_VISITS times without scoring — should preserve each time
+    for i in range(MAX_PRESERVED_VISITS):
+        recs = engine.get_recommendations("u1", timestamp=now + 86400 * (i + 2))
+        assert frozenset(sid for sid, _ in recs) == second_ids, (
+            f"visit {i + 1} should preserve the batch"
+        )
+
+    # One more visit — counter has hit MAX_PRESERVED_VISITS, should now be fresh
+    stale_recs = engine.get_recommendations("u1", timestamp=now + 86400 * (MAX_PRESERVED_VISITS + 2))
+    stale_ids = frozenset(sid for sid, _ in stale_recs)
+    assert stale_ids != second_ids, "batch should refresh after MAX_PRESERVED_VISITS unscored visits"
+
+
+def test_preserved_visit_count_resets_on_score():
+    """Scoring a story resets the preserved-visit counter so the clock starts fresh."""
+    from recommender.engine import MAX_PRESERVED_VISITS
+
+    catalogue = make_catalogue(30)
+    engine = RecommenderEngine(catalogue, rng=random.Random(2))
+    now = time.time()
+
+    engine.get_recommendations("u1", timestamp=now)
+    engine.record_answered_question("u1", "s0", [3, 3, 3, 3], timestamp=now + 1)
+    recs = engine.get_recommendations("u1", timestamp=now + 86400)
+    batch_ids = frozenset(sid for sid, _ in recs)
+
+    # Visit once without scoring (count = 1)
+    engine.get_recommendations("u1", timestamp=now + 2 * 86400)
+
+    # Score something — counter should reset
+    engine.record_answered_question("u1", recs[0][0], [4, 3, 3, 3], timestamp=now + 2 * 86400 + 1)
+
+    # Fresh batch after the score
+    engine.get_recommendations("u1", timestamp=now + 3 * 86400)
+
+    user = engine.get_or_create_user("u1")
+    assert user.preserved_visit_count == 0, "counter must reset after a fresh batch"

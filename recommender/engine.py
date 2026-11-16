@@ -80,6 +80,12 @@ RECENT_BATCHES_TO_EXCLUDE = 2
 HIGH_ENGAGEMENT_MIN_ROUNDS = 5
 HIGH_ENGAGEMENT_SCORE_THRESHOLD = 4  # on the 1-5 scale
 
+# Maximum number of consecutive visits where the same batch is preserved
+# without a new connectedness score before the engine gives up and generates
+# a fresh set. Guards against a user who repeatedly opens the app but never
+# finishes a story — without this they would see the same 6 stories forever.
+MAX_PRESERVED_VISITS = 3
+
 # Maximum number of story_history entries to retain per user. None = unlimited
 # (default). Set to a positive integer to cap memory use and reduce collaborative
 # strategy cost. When trimming, the most recent entries by timestamp are kept;
@@ -393,9 +399,11 @@ class RecommenderEngine:
         group_population = self._same_group_population(user.user_type)
 
         has_aborted_since_last_request = self._has_aborted_since_last_request(user)
-        if not has_new_score and not has_aborted_since_last_request and user.recent_batches:
+        batch_stale = user.preserved_visit_count >= MAX_PRESERVED_VISITS
+        if not has_new_score and not has_aborted_since_last_request and not batch_stale and user.recent_batches:
             preserved = self._preserved_batch(user, seen)
             if len(preserved) == 6:
+                user.preserved_visit_count += 1
                 user.last_recommendation_request_at = timestamp
                 return preserved
             # Fewer than 6 (some removed) — top up with fresh picks below,
@@ -486,6 +494,7 @@ class RecommenderEngine:
 
     def _finalise_batch(self, user: UserModel, results: list[tuple[str, int]], timestamp: float) -> None:
         """Update user model bookkeeping after producing a batch."""
+        user.preserved_visit_count = 0
         for story_id, _ in results:
             user.recommended_story_ids.add(story_id)
             # recommended_story_ids is implicitly bounded by the catalogue size:
