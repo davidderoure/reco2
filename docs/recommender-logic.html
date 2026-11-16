@@ -1,0 +1,592 @@
+<title>ORIGIN Recommender Logic</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600&family=Inter:wght@400;500&family=JetBrains+Mono:wght@400;500&display=swap">
+
+<style>
+/* Layout: single-column document, paper-like, pseudocode-focused */
+:root {
+  --bg:        #fafaf8;
+  --bg-alt:    #f2f1ee;
+  --fg:        #1a1917;
+  --fg-mid:    #4a4845;
+  --fg-soft:   #7a7773;
+  --accent:    #2a5fa8;
+  --accent-bg: #eef3fb;
+  --border:    #dedad5;
+  --code-bg:   #f0eeeb;
+  --code-fg:   #1a1917;
+  --tag-bg:    #e8f0fb;
+  --tag-fg:    #1d4a8a;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg:        #17161a;
+    --bg-alt:    #201f24;
+    --fg:        #e8e6e1;
+    --fg-mid:    #a8a5a0;
+    --fg-soft:   #706d68;
+    --accent:    #6a9fd8;
+    --accent-bg: #1a2535;
+    --border:    #2e2c32;
+    --code-bg:   #1e1d22;
+    --code-fg:   #d8d5cf;
+    --tag-bg:    #1a2535;
+    --tag-fg:    #7ab0e0;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg:        #17161a;
+  --bg-alt:    #201f24;
+  --fg:        #e8e6e1;
+  --fg-mid:    #a8a5a0;
+  --fg-soft:   #706d68;
+  --accent:    #6a9fd8;
+  --accent-bg: #1a2535;
+  --border:    #2e2c32;
+  --code-bg:   #1e1d22;
+  --code-fg:   #d8d5cf;
+  --tag-bg:    #1a2535;
+  --tag-fg:    #7ab0e0;
+  color-scheme: dark;
+}
+
+*, *::before, *::after { box-sizing: border-box; }
+
+body {
+  background: var(--bg);
+  color: var(--fg);
+  font-family: 'Inter', system-ui, sans-serif;
+  font-size: 15px;
+  line-height: 1.65;
+  margin: 0;
+  padding-block: 3rem;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+}
+
+.page {
+  max-width: 720px;
+  margin: 0 auto;
+}
+
+/* Header */
+.doc-header {
+  border-bottom: 2px solid var(--accent);
+  padding-bottom: 1.5rem;
+  margin-bottom: 2.5rem;
+}
+.doc-title {
+  font-family: 'Space Grotesk', sans-serif;
+  font-size: 1.75rem;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  color: var(--fg);
+  margin: 0 0 0.35rem;
+  text-wrap: balance;
+}
+.doc-meta {
+  font-size: 0.82rem;
+  color: var(--fg-soft);
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0 1.5rem;
+}
+
+/* Section headings */
+h2 {
+  font-family: 'Space Grotesk', sans-serif;
+  font-size: 1.05rem;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  color: var(--accent);
+  margin: 2.5rem 0 0.75rem;
+  text-wrap: balance;
+}
+h2 .section-num {
+  font-variant-numeric: tabular-nums;
+  color: var(--fg-soft);
+  font-weight: 400;
+  margin-right: 0.5em;
+}
+
+h3 {
+  font-family: 'Space Grotesk', sans-serif;
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: var(--fg-mid);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  margin: 1.75rem 0 0.5rem;
+  text-wrap: balance;
+}
+
+p {
+  margin: 0 0 0.9rem;
+  color: var(--fg-mid);
+  max-width: 65ch;
+}
+
+/* Pseudocode blocks */
+.proc {
+  margin: 1rem 0 1.5rem;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  overflow: hidden;
+}
+.proc-label {
+  font-family: 'Space Grotesk', sans-serif;
+  font-size: 0.78rem;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--fg-soft);
+  background: var(--bg-alt);
+  border-bottom: 1px solid var(--border);
+  padding: 0.4rem 1rem;
+  display: flex;
+  align-items: center;
+  gap: 0.5em;
+}
+.proc-label::before {
+  content: 'PROCEDURE';
+  color: var(--accent);
+  font-weight: 600;
+}
+.proc-label span {
+  color: var(--fg);
+}
+pre {
+  margin: 0;
+  padding: 1rem 1rem 1.1rem;
+  background: var(--code-bg);
+  color: var(--code-fg);
+  font-family: 'JetBrains Mono', 'Fira Mono', 'Cascadia Code', monospace;
+  font-size: 0.82rem;
+  line-height: 1.7;
+  overflow-x: auto;
+  tab-size: 2;
+  white-space: pre;
+}
+
+/* Inline code */
+code {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.83em;
+  background: var(--code-bg);
+  padding: 0.1em 0.35em;
+  border-radius: 3px;
+}
+
+/* Keyword highlighting in pre */
+.kw  { color: var(--accent); font-weight: 500; }
+.cmt { color: var(--fg-soft); font-style: italic; }
+.val { color: #d08b35; }
+
+/* Parameters table */
+table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.83rem;
+  margin: 0.75rem 0 1.5rem;
+  min-width: 0;
+}
+thead th {
+  font-family: 'Space Grotesk', sans-serif;
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--fg-soft);
+  text-align: left;
+  padding: 0.4rem 0.75rem;
+  border-bottom: 2px solid var(--border);
+}
+tbody td {
+  padding: 0.5rem 0.75rem;
+  border-bottom: 1px solid var(--border);
+  vertical-align: top;
+}
+tbody tr:last-child td { border-bottom: none; }
+.param-name {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.8em;
+  color: var(--accent);
+  white-space: nowrap;
+}
+.param-val {
+  font-variant-numeric: tabular-nums;
+  font-weight: 500;
+  white-space: nowrap;
+}
+tbody td:nth-child(3) { color: var(--fg-mid); }
+
+/* Note callout */
+.note {
+  background: var(--accent-bg);
+  border-left: 3px solid var(--accent);
+  padding: 0.65rem 0.9rem;
+  border-radius: 0 4px 4px 0;
+  font-size: 0.84rem;
+  color: var(--fg-mid);
+  margin: 1rem 0 1.5rem;
+}
+.note strong { color: var(--fg); }
+
+/* Slot diagram */
+.slots {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin: 0.75rem 0 1.25rem;
+}
+.slot {
+  flex: 1 1 140px;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  padding: 0.6rem 0.8rem;
+  background: var(--bg-alt);
+  min-width: 0;
+}
+.slot-type {
+  font-family: 'Space Grotesk', sans-serif;
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  margin-bottom: 0.2rem;
+}
+.slot-count {
+  font-size: 1.3rem;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+  margin-bottom: 0.2rem;
+}
+.slot-desc {
+  font-size: 0.78rem;
+  color: var(--fg-soft);
+  line-height: 1.4;
+}
+.slot.content .slot-type  { color: #2a78c8; }
+.slot.collab  .slot-type  { color: #1f9e6e; }
+.slot.topical .slot-type  { color: #c08000; }
+.slot.wild    .slot-type  { color: #7840c0; }
+
+hr {
+  border: none;
+  border-top: 1px solid var(--border);
+  margin: 2.5rem 0;
+}
+
+footer {
+  font-size: 0.78rem;
+  color: var(--fg-soft);
+  margin-top: 3rem;
+  padding-top: 1.25rem;
+  border-top: 1px solid var(--border);
+}
+</style>
+
+<div class="page">
+
+  <header class="doc-header">
+    <h1 class="doc-title">ORIGIN Recommender — Logic Reference</h1>
+    <div class="doc-meta">
+      <span>ORIGIN Project</span>
+      <span>Recommender Service v1</span>
+      <span>Internal — not for distribution</span>
+    </div>
+  </header>
+
+  <p>This document describes the recommendation logic as a decision procedure. It is intended for clinical and research colleagues who need to understand what the system does without reading code, and as a basis for a methods section in future publications. Tunable parameters are listed in §8 with their current values and rationale.</p>
+
+  <div class="note">
+    <strong>Terminology.</strong> A <em>connectedness score</em> is the participant's answer to the first question after reading a story (1–5 scale). A <em>batch</em> is the set of 6 stories returned to the app. A participant is <em>cold-start</em> until they have scored at least one story.
+  </div>
+
+  <h2><span class="section-num">1.</span> Top-level decision procedure</h2>
+  <p>Every time the app requests recommendations, the engine runs the following procedure:</p>
+
+  <div class="proc">
+    <div class="proc-label"><span>get_recommendations(participant)</span></div>
+    <pre><span class="kw">IF</span> participant has no scored stories yet:
+    <span class="kw">RETURN</span> cold_start(participant)              <span class="cmt">→ see §2</span>
+
+<span class="kw">IF</span> no new score since last visit
+<span class="kw">AND</span> no abort event since last visit
+<span class="kw">AND</span> preserved_visit_count &lt; MAX_PRESERVED_VISITS (<span class="val">3</span>):
+    preserved ← last batch, minus stories opened-but-not-scored
+    <span class="kw">IF</span> preserved contains <span class="val">6</span> stories:
+        preserved_visit_count ← preserved_visit_count + <span class="val">1</span>
+        <span class="kw">RETURN</span> preserved                         <span class="cmt">→ see §3</span>
+
+<span class="cmt">── new score arrived, abort fired, or stale batch ──</span>
+preserved_visit_count ← <span class="val">0</span>
+<span class="kw">RETURN</span> fresh_recommendations(participant)   <span class="cmt">→ see §4</span></pre>
+  </div>
+
+  <h2><span class="section-num">2.</span> Cold start</h2>
+  <p>When a participant has no engagement history, personal preference cannot be inferred. The batch is built from the most recently added stories and the most popular stories among others in the same participant group.</p>
+
+  <div class="proc">
+    <div class="proc-label"><span>cold_start(participant)</span></div>
+    <pre>group ← all participants of the same type
+         <span class="cmt">(trial / test / usability — groups are isolated from each other)</span>
+
+slot <span class="val">1</span>  — topical:
+    take the most recently added story not yet seen by this participant
+
+slots <span class="val">2–5</span> — popularity:
+    rank all catalogue stories by mean connectedness across group
+    <span class="kw">IF</span> COLD_START_SEED is configured:
+        blend seeded story weights into this ranking              <span class="cmt">→ see §8</span>
+    sample <span class="val">4</span> at random from the top COLD_START_POPULAR_POOL_SIZE (<span class="val">12</span>)
+    <span class="cmt">(random draw prevents one story being shown to every new user)</span>
+
+slot <span class="val">6</span>  — wildcard:
+    pick one unseen story at random from the catalogue
+
+<span class="kw">RETURN</span> [slot <span class="val">1</span>, slots <span class="val">2–5</span>, slot <span class="val">6</span>]</pre>
+  </div>
+
+  <h2><span class="section-num">3.</span> Batch preservation</h2>
+  <p>If a participant opens the app between sessions without having scored a story, the same batch is returned with their place held. This is the intended behaviour for a participant who was interrupted mid-session.</p>
+  <p>To prevent a participant who rarely scores from seeing the same six stories indefinitely, the preserved batch is treated as stale after MAX_PRESERVED_VISITS consecutive unscored visits, and a fresh batch is generated on the next request.</p>
+  <p>An <em>abort</em> event ("Get me out of here") always bypasses preservation regardless of the visit count — it is a deliberate signal that the participant wants different content, distinct from an accidental early exit.</p>
+
+  <h2><span class="section-num">4.</span> Fresh recommendations</h2>
+  <p>Each batch of 6 is filled from four strategies. The default slot allocation is:</p>
+
+  <div class="slots">
+    <div class="slot content">
+      <div class="slot-type">Content-based</div>
+      <div class="slot-count">2</div>
+      <div class="slot-desc">Matched to participant's tag-affinity profile</div>
+    </div>
+    <div class="slot collab">
+      <div class="slot-type">Collaborative</div>
+      <div class="slot-count">2</div>
+      <div class="slot-desc">Liked by participants with similar taste</div>
+    </div>
+    <div class="slot topical">
+      <div class="slot-type">Topical</div>
+      <div class="slot-count">1</div>
+      <div class="slot-desc">New to this participant since last visit</div>
+    </div>
+    <div class="slot wild">
+      <div class="slot-type">Wildcard</div>
+      <div class="slot-count">1</div>
+      <div class="slot-desc">Random unseen story</div>
+    </div>
+  </div>
+
+  <div class="proc">
+    <div class="proc-label"><span>fresh_recommendations(participant)</span></div>
+    <pre>seen               ← stories participant has scored
+recently_recommended ← stories in last RECENT_BATCHES_TO_EXCLUDE (<span class="val">2</span>) batches
+excluded           ← seen ∪ recently_recommended
+
+slot_counts ← {content-based: <span class="val">2</span>, collaborative: <span class="val">2</span>, topical: <span class="val">1</span>, wildcard: <span class="val">1</span>}
+
+<span class="kw">IF</span> participant is highly engaged:                        <span class="cmt">→ see §6</span>
+    slot_counts[content-based] ← <span class="val">1</span>
+    slot_counts[wildcard]      ← <span class="val">2</span>
+    <span class="cmt">(widens exploration as the preference profile matures)</span>
+
+<span class="kw">FOR EACH</span> slot_type in slot_counts:
+    fill from strategy(participant, excluded)             <span class="cmt">→ see §5</span>
+    add filled stories to excluded
+
+<span class="kw">IF</span> fewer than <span class="val">6</span> stories found:
+    top up from content-based / topical / wildcard,
+      still excluding seen but relaxing recent-batch window
+    <span class="cmt">(early trial: collaborative underproduces until overlap builds)</span>
+
+apply re-engagement ramp(participant, batch)             <span class="cmt">→ see §7</span>
+
+ensure at least MIN_FRESH_PER_BATCH (<span class="val">2</span>) stories in this batch
+  have never been recommended to this participant before
+
+<span class="kw">RETURN</span> batch of <span class="val">6</span></pre>
+  </div>
+
+  <h2><span class="section-num">5.</span> Recommendation strategies</h2>
+
+  <h3>Content-based</h3>
+  <div class="proc">
+    <div class="proc-label"><span>content_based(participant, excluded)</span></div>
+    <pre><span class="kw">FOR EACH</span> unseen story not in excluded:
+    score ← weighted sum of tag_affinity[tag] for each tag on story
+             <span class="cmt">(tag_affinity built from participant's scored history — see §6)</span>
+
+shuffle the top POOL_SIZE (<span class="val">6</span>) candidates uniformly
+<span class="cmt">(shuffling prevents a narrow positive-feedback loop where a small number</span>
+<span class="cmt"> of high-affinity stories are always returned first)</span>
+
+yield from shuffled pool</pre>
+  </div>
+
+  <h3>Collaborative</h3>
+  <div class="proc">
+    <div class="proc-label"><span>collaborative(participant, excluded)</span></div>
+    <pre><span class="kw">FOR EACH</span> other_participant in same group:
+    similarity ← Pearson correlation of connectedness scores
+                  on stories both have scored
+
+recommend stories scored highly by similar participants
+  that this participant has not seen,
+  ranked by similarity-weighted connectedness</pre>
+  </div>
+
+  <div class="note">
+    <strong>Early-trial behaviour.</strong> Collaborative filtering requires at least two participants to have scored the same stories. It will underperform in the first few weeks of the trial and gradually improve as engagement data accumulates. This is expected and is handled by the top-up logic in §4.
+  </div>
+
+  <h3>Topical</h3>
+  <div class="proc">
+    <div class="proc-label"><span>topical(participant, excluded)</span></div>
+    <pre>new_for_this_participant ← stories added to catalogue
+                             since this participant's last visit
+                            <span class="cmt">(each participant has their own recency window)</span>
+
+<span class="kw">IF</span> BOOSTED_STORY_IDS is configured:
+    prioritise those stories within this slot              <span class="cmt">→ see §8</span>
+
+yield new stories first, then fall back to any unseen story</pre>
+  </div>
+
+  <h3>Wildcard</h3>
+  <div class="proc">
+    <div class="proc-label"><span>wildcard(participant, excluded)</span></div>
+    <pre>yield one unseen story chosen uniformly at random
+  from all catalogue stories not in excluded</pre>
+  </div>
+
+  <h2><span class="section-num">6.</span> Preference profile</h2>
+  <p>Each participant's preference profile is a dictionary mapping story tags to affinity weights (0–1). It is recomputed after each scored engagement, using all entries in the participant's history up to MAX_HISTORY_SIZE. Older scores contribute less via exponential decay with a 14-day half-life.</p>
+
+  <div class="proc">
+    <div class="proc-label"><span>build_tag_affinity(participant)</span></div>
+    <pre><span class="kw">FOR EACH</span> story s the participant has scored:
+    age_weight(s) ← exp(−days_since_scored(s) / <span class="val">14</span>)
+    <span class="kw">FOR EACH</span> tag t on story s:
+        weighted_sum[t]   += age_weight(s) × connectedness(s)
+        weight_total[t]   += age_weight(s)
+
+<span class="kw">FOR EACH</span> tag t:
+    tag_affinity[t] ← weighted_sum[t] / weight_total[t]
+
+<span class="cmt">── high-engagement check ──</span>
+scored_rounds ← number of stories participant has scored
+
+participant is <em>highly engaged</em> IF:
+    scored_rounds ≥ HIGH_ENGAGEMENT_MIN_ROUNDS (<span class="val">5</span>)
+    <span class="kw">AND</span> mean connectedness ≥ HIGH_ENGAGEMENT_SCORE_THRESHOLD (<span class="val">4</span>/<span class="val">5</span>)</pre>
+  </div>
+
+  <h2><span class="section-num">7.</span> Re-engagement ramp</h2>
+  <p>When a participant is nearing catalogue exhaustion (fewer than 18 unseen stories), previously scored high-connectedness stories are gradually blended back in. The ramp reaches full re-engagement when no unseen stories remain.</p>
+
+  <div class="proc">
+    <div class="proc-label"><span>re_engagement_ramp(participant, batch)</span></div>
+    <pre>unread ← |catalogue| − |stories participant has scored|
+
+<span class="kw">IF</span> unread ≥ REENGAGEMENT_RAMP_THRESHOLD (<span class="val">18</span>):
+    <span class="kw">RETURN</span> batch unchanged
+
+ramp_fraction ← <span class="val">1</span> − unread / REENGAGEMENT_RAMP_THRESHOLD
+n_slots       ← ceil(<span class="val">6</span> × ramp_fraction), minimum <span class="val">1</span>
+
+pool ← participant's scored stories, ranked by connectedness (highest first),
+       excluding stories already in this batch
+
+<span class="kw">FOR</span> i in <span class="val">1</span> .. n_slots:
+    drop the lowest-priority story from batch
+    add top story from pool not already in batch
+
+<span class="kw">RETURN</span> modified batch</pre>
+  </div>
+
+  <hr>
+
+  <h2><span class="section-num">8.</span> Parameters</h2>
+  <p>All named constants are set in <code>engine.py</code> and require a code deployment and service restart to change. Environment variables (<code>COLD_START_SEED</code>, <code>BOOSTED_STORY_IDS</code>) can be changed via deployment configuration without a code change.</p>
+
+  <div style="overflow-x: auto;">
+  <table>
+    <thead>
+      <tr>
+        <th>Parameter</th>
+        <th>Value</th>
+        <th>Rationale</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><code class="param-name">MAX_PRESERVED_VISITS</code></td>
+        <td><span class="param-val">3</span></td>
+        <td>Maximum unscored visits before the preserved batch expires and a fresh set is generated. Prevents a low-engagement participant from seeing the same 6 stories indefinitely.</td>
+      </tr>
+      <tr>
+        <td><code class="param-name">COLD_START_POPULAR_POOL_SIZE</code></td>
+        <td><span class="param-val">12</span></td>
+        <td>Cold-start popularity slots sample at random from this many top-ranked stories. Prevents one story from being shown to every new participant.</td>
+      </tr>
+      <tr>
+        <td><code class="param-name">REENGAGEMENT_RAMP_THRESHOLD</code></td>
+        <td><span class="param-val">18</span></td>
+        <td>Re-engagement begins when fewer than this many unseen stories remain (3× a single batch). Calibrated at ~9% of a 200-story catalogue.</td>
+      </tr>
+      <tr>
+        <td><code class="param-name">MIN_FRESH_PER_BATCH</code></td>
+        <td><span class="param-val">2</span></td>
+        <td>Minimum number of stories in each batch that have never been recommended to this participant before. Ensures ongoing variety even as re-engagement ramps up.</td>
+      </tr>
+      <tr>
+        <td><code class="param-name">RECENT_BATCHES_TO_EXCLUDE</code></td>
+        <td><span class="param-val">2</span></td>
+        <td>Stories from the last N batches are excluded from fresh recommendations to prevent short-term cycling. Relaxes automatically when the catalogue is too small to honour it.</td>
+      </tr>
+      <tr>
+        <td><code class="param-name">MAX_HISTORY_SIZE</code></td>
+        <td><span class="param-val">70</span></td>
+        <td>Maximum scored stories retained per participant (≈35% of a 200-story catalogue). Oldest entries are evicted first; tag affinity is recomputed from survivors. Should be set to 30–40% of the actual launch catalogue size.</td>
+      </tr>
+      <tr>
+        <td><code class="param-name">HIGH_ENGAGEMENT_MIN_ROUNDS</code></td>
+        <td><span class="param-val">5</span></td>
+        <td>Minimum scored rounds before exploration widening can activate.</td>
+      </tr>
+      <tr>
+        <td><code class="param-name">HIGH_ENGAGEMENT_SCORE_THRESHOLD</code></td>
+        <td><span class="param-val">4/5</span></td>
+        <td>Mean connectedness threshold for exploration widening. At this level the participant has a well-developed affinity profile; widening prevents it narrowing further.</td>
+      </tr>
+      <tr>
+        <td><code class="param-name">POOL_SIZE</code></td>
+        <td><span class="param-val">6</span></td>
+        <td>Content-based candidates are scored by affinity match and the top N are shuffled before selection. Smaller = faster personalisation; larger = more variety.</td>
+      </tr>
+      <tr>
+        <td><code class="param-name">COLD_START_SEED</code></td>
+        <td><span class="param-val">env var</span></td>
+        <td>Optional: <code>story_id:weight, ...</code> — editorial story list (0–1 weights) blended into the cold-start popularity ranking. Each entry contributes one synthetic vote; real trial engagement progressively outweighs it.</td>
+      </tr>
+      <tr>
+        <td><code class="param-name">BOOSTED_STORY_IDS</code></td>
+        <td><span class="param-val">env var</span></td>
+        <td>Optional: <code>story_id, ...</code> — stories prioritised within the topical slot. Used to promote newly published or seasonal content.</td>
+      </tr>
+    </tbody>
+  </table>
+  </div>
+
+  <footer>
+    ORIGIN Recommender Service · Internal reference document · Parameters subject to change before trial launch
+  </footer>
+
+</div>
