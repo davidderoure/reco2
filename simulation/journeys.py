@@ -19,7 +19,7 @@ import time
 
 from recommender.engine import RecommenderEngine
 from .noise import InterruptionType, NO_NOISE, NoiseConfig, high_progress, low_progress, sample_interruption
-from .personas import PERSONAS, ROBUSTNESS_PERSONAS, simulated_connectedness
+from .personas import EXPLORATION_PERSONAS, PERSONAS, ROBUSTNESS_PERSONAS, simulated_connectedness
 from .real_catalogue import FORMAT_TAGS as REAL_FORMAT_TAGS, load_real_catalogue
 from .real_personas import REAL_PERSONAS, REAL_ROBUSTNESS_PERSONAS
 from .synthetic_catalogue import generate_catalogue
@@ -44,9 +44,34 @@ def run_journey(
         recs = engine.get_recommendations(user_id, timestamp=timestamp)
         if persona.selection == "random":
             opened_story_id, opened_type = rng.choice(recs)
+        elif persona.selection in ("best", "worst"):
+            # Rank batch by simulated affinity for this persona, then pick
+            # highest (exploiter) or lowest (explorer).
+            scored = [
+                (simulated_connectedness(engine.catalogue.get(sid), persona, rng, format_tags=format_tags), sid, stype)
+                for sid, stype in recs
+                if engine.catalogue.get(sid)
+            ]
+            scored.sort(reverse=(persona.selection == "best"))
+            opened_story_id, opened_type = scored[0][1], scored[0][2]
         else:
             opened_story_id, opened_type = recs[0]
         story = engine.catalogue.get(opened_story_id)
+
+        # Skimmer: stop early without scoring, bypassing noise config.
+        if persona.skip_probability > 0.0 and rng.random() < persona.skip_probability:
+            pct = low_progress(rng)
+            engine.record_engagement_progress(user_id, opened_story_id, pct, timestamp=timestamp)
+            engine.record_engagement_stop(user_id, opened_story_id, progress_percentage=pct, timestamp=timestamp)
+            rounds.append({
+                "round": round_idx + 1,
+                "recommendations": recs,
+                "opened": opened_story_id,
+                "opened_type": opened_type,
+                "score": None,
+                "interruption": InterruptionType.STOP_EARLY,
+            })
+            continue
 
         # Consistent aborter: if the story contains a trigger tag, abort immediately
         # regardless of noise — this is the deterministic behaviour we want to test.
@@ -143,6 +168,7 @@ def main(
     output_path: str = "simulation/journeys_output.md",
     with_noise: bool = False,
     robustness: bool = False,
+    exploration: bool = False,
     real: bool = False,
     real_catalogue_path: str | None = None,
 ) -> None:
@@ -177,6 +203,16 @@ def main(
             "Each persona exercises an extreme edge case "
             "(fixed score, non-standard selection) to verify the "
             "recommender behaves reasonably under adversarial or degenerate input."
+        )
+    elif exploration:
+        personas_to_run = [(p, USERS_PER_PERSONA) for p in EXPLORATION_PERSONAS]
+        title = "# Exploration journeys — exploiter, explorer, skimmer"
+        subtitle = (
+            "Three personas that differ in how they choose which story to open and how often "
+            "they engage. Exploiter always picks their best-match story; explorer always picks "
+            "their worst-match; skimmer opens stories but rarely scores them (85% stop-early rate). "
+            "Tests personalisation speed, wildcard/high-engagement widening, and batch-preservation "
+            "behaviour under sparse signal."
         )
     else:
         personas_to_run = [(p, USERS_PER_PERSONA) for p in (REAL_PERSONAS if real else PERSONAS)]
@@ -216,13 +252,16 @@ def main(
 if __name__ == "__main__":
     with_noise = "--noise" in sys.argv
     robustness = "--robustness" in sys.argv
+    exploration = "--exploration" in sys.argv
     real = "--real" in sys.argv
     catalogue_path = next((sys.argv[i + 1] for i, a in enumerate(sys.argv) if a == "--catalogue" and i + 1 < len(sys.argv)), None)
     prefix = "real_" if real else ""
     if robustness:
         output = f"simulation/journeys_{prefix}robustness.md"
+    elif exploration:
+        output = f"simulation/journeys_{prefix}output_exploration.md"
     elif with_noise:
         output = f"simulation/journeys_{prefix}output_noise.md"
     else:
         output = f"simulation/journeys_{prefix}output.md"
-    main(output_path=output, with_noise=with_noise, robustness=robustness, real=real, real_catalogue_path=catalogue_path)
+    main(output_path=output, with_noise=with_noise, robustness=robustness, exploration=exploration, real=real, real_catalogue_path=catalogue_path)

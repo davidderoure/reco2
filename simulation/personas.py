@@ -20,9 +20,10 @@ class Persona:
     theme_weights: dict[str, float] = field(default_factory=dict)  # 0-1, default 0.3 (mild baseline)
     format_weights: dict[str, float] = field(default_factory=dict)  # 0-1, default 0.5 (no preference)
     # Robustness overrides — None / "first" = normal behaviour
-    selection: str = "first"    # "first" = always opens recs[0]; "random" = picks uniformly at random
+    selection: str = "first"    # "first" / "random" / "best" (highest affinity) / "worst" (lowest affinity)
     fixed_score: int | None = None  # if set, always returns this score (1-5) regardless of story tags
     abort_tags: set[str] = field(default_factory=set)  # always aborts if opened story contains any of these tags
+    skip_probability: float = 0.0   # 0-1: chance of stopping early without scoring each round
 
     def affinity_for(self, tag: str, themes: set[str], formats: set[str]) -> float:
         if tag in themes:
@@ -81,6 +82,55 @@ PERSONAS: list[Persona] = [
             "Literature": 0.7,
             "Friendship": 0.7,
         },
+    ),
+]
+
+
+EXPLORATION_PERSONAS: list[Persona] = [
+    Persona(
+        name="exploiter",
+        description=(
+            "Strong preference for community/arts themes. Always opens the story from the batch "
+            "that best matches their hidden preferences — the recommender's ideal user. "
+            "Should show rapid personalisation and eventually trigger high-engagement widening."
+        ),
+        theme_weights={
+            "Community": 0.9,
+            "Activism": 0.85,
+            "Performing Arts": 0.85,
+            "Visual Arts": 0.8,
+            "Music": 0.8,
+            "Friendship": 0.7,
+        },
+        selection="best",
+    ),
+    Persona(
+        name="explorer",
+        description=(
+            "Same preference profile as exploiter, but deliberately always picks the story "
+            "least aligned with their preferences — deliberately ventures outside comfort zone. "
+            "Tests the wildcard slot and high-engagement widening under mismatched scores."
+        ),
+        theme_weights={
+            "Community": 0.9,
+            "Activism": 0.85,
+            "Performing Arts": 0.85,
+            "Visual Arts": 0.8,
+            "Music": 0.8,
+            "Friendship": 0.7,
+        },
+        selection="worst",
+    ),
+    Persona(
+        name="skimmer",
+        description=(
+            "Opens stories but rarely finishes them — 85% chance of stopping early without "
+            "scoring each round. The engine gets almost no signal, batch preservation activates "
+            "repeatedly, and personalisation stalls. Tests graceful degradation and whether "
+            "the occasional score eventually moves recommendations."
+        ),
+        theme_weights={"Community": 0.9, "Music": 0.85, "Friendship": 0.8},
+        skip_probability=0.85,
     ),
 ]
 

@@ -15,7 +15,7 @@ import sys
 import time
 
 from .noise import InterruptionType, NO_NOISE, NoiseConfig, high_progress, low_progress, sample_interruption
-from .personas import PERSONAS, ROBUSTNESS_PERSONAS, simulated_connectedness
+from .personas import EXPLORATION_PERSONAS, PERSONAS, ROBUSTNESS_PERSONAS, simulated_connectedness
 from .real_catalogue import FORMAT_TAGS as REAL_FORMAT_TAGS, load_real_catalogue
 from .real_personas import REAL_PERSONAS, REAL_ROBUSTNESS_PERSONAS
 from .synthetic_catalogue import FORMAT_TAGS, THEME_TAGS, generate_catalogue
@@ -41,9 +41,31 @@ def collect_journey(
         recs = engine.get_recommendations(user_id, timestamp=timestamp)
         if persona.selection == "random":
             opened_story_id, opened_type = rng.choice(recs)
+        elif persona.selection in ("best", "worst"):
+            scored = [
+                (simulated_connectedness(engine.catalogue.get(sid), persona, rng, format_tags=format_tags), sid, stype)
+                for sid, stype in recs
+                if engine.catalogue.get(sid)
+            ]
+            scored.sort(reverse=(persona.selection == "best"))
+            opened_story_id, opened_type = scored[0][1], scored[0][2]
         else:
             opened_story_id, opened_type = recs[0]
         story = engine.catalogue.get(opened_story_id)
+
+        if persona.skip_probability > 0.0 and rng.random() < persona.skip_probability:
+            pct = low_progress(rng)
+            engine.record_engagement_progress(user_id, opened_story_id, pct, timestamp=timestamp)
+            engine.record_engagement_stop(user_id, opened_story_id, pct, timestamp=timestamp)
+            rounds.append({
+                "round": round_idx + 1,
+                "opened": opened_story_id,
+                "tags": story.tags if story else [],
+                "rec_type": {1: "content", 2: "collab", 3: "topical", 4: "wildcard"}.get(opened_type, "?"),
+                "score": None,
+                "interruption": "stop_early",
+            })
+            continue
 
         if persona.abort_tags and story and persona.abort_tags & set(story.tags):
             engine.record_engagement_progress(user_id, opened_story_id, 5.0, timestamp=timestamp)
@@ -312,8 +334,8 @@ Object.entries(byPersona).forEach(([persona, data]) => {{
 </html>"""
 
 
-def main(with_noise: bool = False, robustness: bool = False, real: bool = False,
-         real_catalogue_path: str | None = None) -> None:
+def main(with_noise: bool = False, robustness: bool = False, exploration: bool = False,
+         real: bool = False, real_catalogue_path: str | None = None) -> None:
     noise = NoiseConfig() if with_noise else NO_NOISE
     now = time.time()
 
@@ -330,6 +352,8 @@ def main(with_noise: bool = False, robustness: bool = False, real: bool = False,
 
     if robustness:
         personas_to_run = [(p, 1) for p in (REAL_ROBUSTNESS_PERSONAS if real else ROBUSTNESS_PERSONAS)]
+    elif exploration:
+        personas_to_run = [(p, USERS_PER_PERSONA) for p in EXPLORATION_PERSONAS]
     else:
         personas_to_run = [(p, USERS_PER_PERSONA) for p in (REAL_PERSONAS if real else PERSONAS)]
 
@@ -356,6 +380,8 @@ def main(with_noise: bool = False, robustness: bool = False, real: bool = False,
     prefix = "real_" if real else ""
     if robustness:
         suffix = "_robustness"
+    elif exploration:
+        suffix = "_exploration"
     elif with_noise:
         suffix = "_noise"
     else:
@@ -369,6 +395,7 @@ def main(with_noise: bool = False, robustness: bool = False, real: bool = False,
 if __name__ == "__main__":
     with_noise = "--noise" in sys.argv
     robustness = "--robustness" in sys.argv
+    exploration = "--exploration" in sys.argv
     real = "--real" in sys.argv
     catalogue_path = next((sys.argv[i + 1] for i, a in enumerate(sys.argv) if a == "--catalogue" and i + 1 < len(sys.argv)), None)
-    main(with_noise=with_noise, robustness=robustness, real=real, real_catalogue_path=catalogue_path)
+    main(with_noise=with_noise, robustness=robustness, exploration=exploration, real=real, real_catalogue_path=catalogue_path)

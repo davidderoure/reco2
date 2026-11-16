@@ -86,6 +86,8 @@ python3 -m simulation.journeys --robustness  # extreme-behaviour personas → si
 python3 -m simulation.report                 # HTML report for sharing → simulation/journeys_report.html
 python3 -m simulation.report --noise
 python3 -m simulation.report --robustness    # → simulation/journeys_report_robustness.html
+python3 -m simulation.journeys --exploration # exploiter / explorer / skimmer → simulation/journeys_output_exploration.md
+python3 -m simulation.report --exploration   # → simulation/journeys_report_exploration.html
 ```
 
 The simulation uses the definitive ORIGIN tag vocabulary (4 format + 47 theme
