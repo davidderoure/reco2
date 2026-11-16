@@ -523,7 +523,7 @@ def test_cold_start_excludes_deleted_stories():
     assert "s0" not in ids, "deleted story s0 must not appear in cold-start recommendations"
 
 
-def test_reengagement_excludes_deleted_stories():
+def test_exhausted_batch_fill_excludes_deleted_stories():
     """A returning user must never receive a story they previously rated that has since
     been deleted, even via the re-engagement (catalogue-exhaustion) path.
     """

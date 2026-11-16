@@ -435,7 +435,7 @@ class RecommenderEngine:
             results = self._steady_state_recommendations(user, seen, recently_recommended, group_population)
 
         if len(results) < 6:
-            results = self._fill_with_reengagement(user, seen, results)
+            results = self._fill_exhausted_batch(user, seen, results)
 
         results = self._ensure_minimum_freshness(user, seen, previously_recommended, results, group_population)
 
@@ -751,7 +751,7 @@ class RecommenderEngine:
         averages.sort(reverse=True)
         return [sid for _, sid in averages]
 
-    def _fill_with_reengagement(
+    def _fill_exhausted_batch(
         self, user: UserModel, excluded: set[str], results: list[tuple[str, int]]
     ) -> list[tuple[str, int]]:
         """Open question #4: catalogue exhaustion. Relax unseen-only and
