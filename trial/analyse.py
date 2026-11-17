@@ -389,6 +389,97 @@ def analyse(
         mean_q1 = f"{sum(p_q1s)/len(p_q1s):.1f}" if p_q1s else "—"
         lines.append(f"  {p.origin_id:<14} {len(p_moods):>7} {mean_mood:>10} {mean_q1:>8}")
 
+    # ------------------------------------------------------------------ #
+    # 8. Engagement depth (stops without scores)
+    # ------------------------------------------------------------------ #
+    section("8. Engagement depth (stops without scores)")
+    lines.append("  Progress distribution at stop events — how far participants read before")
+    lines.append("  exiting without scoring. Useful for calibrating a 'high-progress =")
+    lines.append("  weak positive signal' threshold, and for identifying skimmer patterns.")
+    lines.append("  Note: different media types (audio/video/written) have different natural")
+    lines.append("  completion curves; a catalogue dump with format tags will allow breakdown.")
+
+    stop_records = [r for r in all_records if r.percent_complete is not None and r.question1_rating is None]
+    scored_with_pct = [r for r in all_records if r.question1_rating is not None]
+
+    lines.append(f"\n  Records with progress data (no score): {len(stop_records)}")
+    lines.append(f"  Scored records: {len(scored_with_pct)}")
+
+    if stop_records:
+        # Progress buckets
+        buckets = {"0–25%": 0, "25–50%": 0, "50–75%": 0, "75–100%": 0}
+        for r in stop_records:
+            pct = r.percent_complete
+            if pct < 25:
+                buckets["0–25%"] += 1
+            elif pct < 50:
+                buckets["25–50%"] += 1
+            elif pct < 75:
+                buckets["50–75%"] += 1
+            else:
+                buckets["75–100%"] += 1
+
+        lines.append("")
+        lines.append("  Stop events by progress bucket:")
+        lines.append(f"  {'Bucket':<12} {'Count':>6}  {'%':>6}  Bar")
+        lines.append(f"  {'────────────':<12} {'──────':>6}  {'──────':>6}  ───")
+        n_stops = len(stop_records)
+        for bucket, count in buckets.items():
+            bar = "█" * round(count / n_stops * 30) if n_stops else ""
+            lines.append(f"  {bucket:<12} {count:>6}  {count/n_stops*100:>5.1f}%  {bar}")
+
+        # ASCII histogram of progress% at stop (10-point bins)
+        lines.append("")
+        lines.append("  Distribution of progress% at stop (10-point bins):")
+        hist: dict[int, int] = defaultdict(int)
+        for r in stop_records:
+            bin_key = min(int(r.percent_complete // 10) * 10, 90)
+            hist[bin_key] += 1
+        lines.append(f"  {'%':>6}  {'Count':>6}  Bar")
+        lines.append(f"  {'──────':>6}  {'──────':>6}  ───")
+        max_bin = max(hist.values()) if hist else 1
+        for bin_start in range(0, 100, 10):
+            count = hist.get(bin_start, 0)
+            bar = "█" * round(count / max_bin * 30) if max_bin else ""
+            lines.append(f"  {bin_start:>3}–{bin_start+9:<2}  {count:>6}  {bar}")
+
+    # Per-participant: scored vs stop-only ratio, skimmer flag
+    lines.append("")
+    lines.append("  Per-participant engagement depth:")
+    lines.append(f"  {'Origin ID':<14} {'Scored':>7} {'Stop-only':>10} {'Score rate':>11}  Flag")
+    lines.append(f"  {'──────────────':<14} {'──────':>7} {'─────────':>10} {'──────────':>11}  ────")
+
+    skimmer_threshold = 0.2  # flag if <20% of records are scored
+    skimmer_min_records = 5  # only flag if participant has enough records to judge
+
+    for p in sorted(participants, key=lambda x: x.origin_id):
+        if not p.records:
+            continue
+        p_scored = sum(1 for r in p.records if r.question1_rating is not None)
+        p_stop_only = sum(1 for r in p.records if r.question1_rating is None and r.percent_complete is not None)
+        total = len(p.records)
+        score_rate = p_scored / total if total else 0
+        flag = ""
+        if total >= skimmer_min_records and score_rate < skimmer_threshold:
+            flag = "⚠ low score rate (skimmer?)"
+        rate_str = f"{score_rate*100:.0f}%"
+        lines.append(f"  {p.origin_id:<14} {p_scored:>7} {p_stop_only:>10} {rate_str:>11}  {flag}")
+
+    low_scorers = sum(
+        1 for p in participants
+        if len(p.records) >= skimmer_min_records
+        and sum(1 for r in p.records if r.question1_rating is not None) / len(p.records) < skimmer_threshold
+    )
+    if low_scorers:
+        lines.append(f"\n  ⚠  {low_scorers} participant(s) flagged with low score rate (<{skimmer_threshold*100:.0f}% of")
+        lines.append("  records scored). These users may not be engaging with the Q1 prompt,")
+        lines.append("  or may be using the app as a browser rather than a rater.")
+        lines.append("  Consider: are preserved batches cycling too slowly for these users?")
+        lines.append(f"  (Current MAX_PRESERVED_VISITS threshold: check engine.py)")
+    else:
+        lines.append(f"\n  No participants flagged for low score rate (threshold: "
+                     f"<{skimmer_threshold*100:.0f}% scored, min {skimmer_min_records} records).")
+
     return "\n".join(lines)
 
 
