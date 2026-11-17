@@ -494,7 +494,15 @@ scored_rounds ← number of stories participant has scored
 
 participant is <em>highly engaged</em> IF:
     scored_rounds ≥ HIGH_ENGAGEMENT_MIN_ROUNDS (<span class="val">5</span>)
-    <span class="kw">AND</span> mean connectedness ≥ HIGH_ENGAGEMENT_SCORE_THRESHOLD (<span class="val">4</span>/<span class="val">5</span>)</pre>
+    <span class="kw">AND</span> mean connectedness ≥ HIGH_ENGAGEMENT_SCORE_THRESHOLD (<span class="val">4</span>/<span class="val">5</span>)
+
+<span class="cmt">── note on high-baseline raters ──</span>
+<span class="cmt">A participant who scores consistently high may reflect genuine connection</span>
+<span class="cmt">or an individual tendency to rate positively (self-reporting artefact).</span>
+<span class="cmt">From the recommender's perspective both are equivalent: a flat high-scoring</span>
+<span class="cmt">profile gives the content-based model little to discriminate on. Widening</span>
+<span class="cmt">exploration is therefore appropriate in either case — increasing variety</span>
+<span class="cmt">rather than reinforcing a weakly-informed preference signal.</span></pre>
   </div>
 
   <h2><span class="section-num">7.</span> Re-engagement ramp</h2>
@@ -568,12 +576,12 @@ pool ← participant's scored stories, ranked by connectedness (highest first),
       <tr>
         <td><code class="param-name">HIGH_ENGAGEMENT_MIN_ROUNDS</code></td>
         <td><span class="param-val">5</span></td>
-        <td>Minimum scored rounds before exploration widening can activate.</td>
+        <td>Minimum scored rounds before exploration widening can activate. Configurable via env var — set before trial launch; logged on startup.</td>
       </tr>
       <tr>
         <td><code class="param-name">HIGH_ENGAGEMENT_SCORE_THRESHOLD</code></td>
         <td><span class="param-val">4/5</span></td>
-        <td>Mean connectedness threshold for exploration widening. At this level the participant has a well-developed affinity profile; widening prevents it narrowing further.</td>
+        <td>Mean connectedness threshold for exploration widening. When scores are consistently at or above this level — whether from genuine connection or from an individual tendency to rate positively — the content-based affinity profile becomes less discriminating. Widening into an extra exploration slot is therefore appropriate in either case. Configurable via env var — set before trial launch; logged on startup.</td>
       </tr>
       <tr>
         <td><code class="param-name">POOL_SIZE</code></td>

@@ -140,6 +140,8 @@ class RecommenderEngine:
         boosted_story_ids: list[str] | None = None,
         cold_start_seed: dict[str, float] | None = None,
         topical_new_story_days: int = 30,
+        high_engagement_min_rounds: int = HIGH_ENGAGEMENT_MIN_ROUNDS,
+        high_engagement_score_threshold: int = HIGH_ENGAGEMENT_SCORE_THRESHOLD,
         rng: random.Random | None = None,
     ) -> None:
         self.catalogue = catalogue
@@ -150,6 +152,8 @@ class RecommenderEngine:
         # cold_start_seed: {story_id: weight} from COLD_START_SEED env var.
         # Used as a pre-population synthetic cohort when real trial data is sparse.
         self.cold_start_seed: dict[str, float] = cold_start_seed or {}
+        self.high_engagement_min_rounds = high_engagement_min_rounds
+        self.high_engagement_score_threshold = high_engagement_score_threshold
         self.strategies = {
             CONTENT_BASED: ContentBasedStrategy(rng=random.Random(rng.randint(0, 2**32) if rng else None)),
             COLLABORATIVE: CollaborativeStrategy(),
@@ -521,11 +525,11 @@ class RecommenderEngine:
             for e in user.story_history.values()
             if e.connectedness is not None
         ]
-        if len(scored) < HIGH_ENGAGEMENT_MIN_ROUNDS:
+        if len(scored) < self.high_engagement_min_rounds:
             return False
         mean_normalised = sum(scored) / len(scored)
         mean_1_to_5 = mean_normalised * 4 + 1
-        return mean_1_to_5 >= HIGH_ENGAGEMENT_SCORE_THRESHOLD
+        return mean_1_to_5 >= self.high_engagement_score_threshold
 
     def _steady_state_recommendations(
         self, user: UserModel, seen: set[str], recently_recommended: set[str] | None = None,

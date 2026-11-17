@@ -234,16 +234,22 @@ def build_engine():
     cold_start_seed = parse_cold_start_seed(os.getenv("COLD_START_SEED", ""))
     boosted_story_ids = parse_boosted_story_ids(os.getenv("BOOSTED_STORY_IDS", ""))
     topical_new_story_days = int(os.getenv("TOPICAL_NEW_STORY_DAYS", "30"))
+    high_engagement_min_rounds = int(os.getenv("HIGH_ENGAGEMENT_MIN_ROUNDS", "5"))
+    high_engagement_score_threshold = int(os.getenv("HIGH_ENGAGEMENT_SCORE_THRESHOLD", "4"))
     if cold_start_seed:
         print(f"COLD_START_SEED: {len(cold_start_seed)} stories")
     if boosted_story_ids:
         print(f"BOOSTED_STORY_IDS: {boosted_story_ids}")
     print(f"TOPICAL_NEW_STORY_DAYS: {topical_new_story_days}")
+    print(f"HIGH_ENGAGEMENT_MIN_ROUNDS: {high_engagement_min_rounds}")
+    print(f"HIGH_ENGAGEMENT_SCORE_THRESHOLD: {high_engagement_score_threshold}")
     engine = RecommenderEngine(
         catalogue,
         boosted_story_ids=boosted_story_ids or None,
         cold_start_seed=cold_start_seed or None,
         topical_new_story_days=topical_new_story_days,
+        high_engagement_min_rounds=high_engagement_min_rounds,
+        high_engagement_score_threshold=high_engagement_score_threshold,
     )
     users = story_client.load_all_user_models()
     engine.load_population(users)

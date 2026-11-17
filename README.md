@@ -56,6 +56,13 @@ the main trial launch.
 `BOOSTED_STORY_IDS` activates the boosted slot: listed stories are prioritised
 within the topical slot. Used to promote newly published or seasonal content.
 
+Two further env vars control the high-engagement widening mechanism: once a
+user has scored at least `HIGH_ENGAGEMENT_MIN_ROUNDS` (default 5) stories with
+a mean Q1 score at or above `HIGH_ENGAGEMENT_SCORE_THRESHOLD` (default 4 on
+the 1–5 scale), one content-based slot shifts to wildcard. Both values are
+logged on startup and can be adjusted between trial phases without a code
+change.
+
 The topical slot uses three-tier selection: (1) boosted stories when
 `BOOSTED_STORY_IDS` is set, (2) stories published within the last
 `TOPICAL_NEW_STORY_DAYS` (default 30) days, (3) random fallback otherwise.
