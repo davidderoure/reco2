@@ -139,6 +139,7 @@ class RecommenderEngine:
         catalogue: Catalogue,
         boosted_story_ids: list[str] | None = None,
         cold_start_seed: dict[str, float] | None = None,
+        topical_new_story_days: int = 30,
         rng: random.Random | None = None,
     ) -> None:
         self.catalogue = catalogue
@@ -152,7 +153,7 @@ class RecommenderEngine:
         self.strategies = {
             CONTENT_BASED: ContentBasedStrategy(rng=random.Random(rng.randint(0, 2**32) if rng else None)),
             COLLABORATIVE: CollaborativeStrategy(),
-            TOPICAL: TopicalStrategy(boosted_story_ids),
+            TOPICAL: TopicalStrategy(boosted_story_ids, new_story_days=topical_new_story_days),
             WILDCARD: WildcardStrategy(rng=random.Random(rng.randint(0, 2**32) if rng else None)),
         }
 

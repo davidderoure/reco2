@@ -807,6 +807,75 @@ def test_boosted_story_ids_appear_in_topical_slot():
 
 
 # ---------------------------------------------------------------------------
+# Topical strategy — three-tier selection
+# ---------------------------------------------------------------------------
+
+def test_topical_random_fallback_when_catalogue_frozen():
+    """With a frozen catalogue (all stories older than new_story_days) and no
+    boosted IDs, the topical slot should behave like a second wildcard — random
+    rather than recency-ordered."""
+    from recommender.strategies.topical import TopicalStrategy
+    from recommender.models import UserModel
+
+    old_ts = time.time() - 60 * 86400  # 60 days ago — outside the 30-day window
+    stories = [Story(story_id=f"s{i:03d}", title=f"S{i}", tags=["t"], created_at=old_ts + i)
+               for i in range(20)]
+    catalogue = Catalogue()
+    catalogue.load(stories)
+    strategy = TopicalStrategy(new_story_days=30)
+    user = UserModel(user_id="u1")
+    excluded: set[str] = set()
+
+    # Run candidates() many times and check that order varies (not always newest-first)
+    orderings = set()
+    for seed in range(20):
+        result = strategy.candidates(user, catalogue, {}, excluded)
+        orderings.add(tuple(result[:5]))
+    assert len(orderings) > 1, "topical fallback should be random, not fixed recency order"
+
+
+def test_topical_new_story_window_surfaces_recent_story():
+    """A story published within new_story_days should appear in topical candidates
+    ahead of the random fallback pool."""
+    from recommender.strategies.topical import TopicalStrategy
+    from recommender.models import UserModel
+
+    old_ts = time.time() - 60 * 86400  # older than window
+    new_ts = time.time() - 5 * 86400   # within 30-day window
+    stories = [Story(story_id=f"old{i}", title=f"Old {i}", tags=["t"], created_at=old_ts + i)
+               for i in range(10)]
+    stories.append(Story(story_id="fresh", title="Fresh", tags=["t"], created_at=new_ts))
+    catalogue = Catalogue()
+    catalogue.load(stories)
+    strategy = TopicalStrategy(new_story_days=30)
+    user = UserModel(user_id="u1")
+
+    result = strategy.candidates(user, catalogue, {}, set())
+    # When there are new stories, only the new-story pool is returned
+    assert "fresh" in result
+    assert not any(sid.startswith("old") for sid in result)
+
+
+def test_topical_boosted_wins_over_new_stories():
+    """Boosted IDs take priority over new stories within the window."""
+    from recommender.strategies.topical import TopicalStrategy
+    from recommender.models import UserModel
+
+    new_ts = time.time() - 5 * 86400
+    stories = [Story(story_id=f"s{i:03d}", title=f"S{i}", tags=["t"], created_at=new_ts + i)
+               for i in range(10)]
+    catalogue = Catalogue()
+    catalogue.load(stories)
+    strategy = TopicalStrategy(boosted_story_ids=["s005", "s007"], new_story_days=30)
+    user = UserModel(user_id="u1")
+
+    result = strategy.candidates(user, catalogue, {}, set())
+    assert result[:2] == ["s005", "s007"], (
+        f"boosted stories should come first, got {result[:3]}"
+    )
+
+
+# ---------------------------------------------------------------------------
 # Stale-batch expiry (MAX_PRESERVED_VISITS)
 # ---------------------------------------------------------------------------
 
