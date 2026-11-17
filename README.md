@@ -51,7 +51,8 @@ BOOSTED_STORY_IDS=s042,s017 python3 server.py
 users see editorially chosen stories rather than random picks. Each seed entry
 contributes one synthetic "vote"; real trial engagement progressively
 outweighs it as data accumulates. Set from usability-trial analytics before
-the main trial launch.
+the main trial launch. Changing it requires a container restart; this is
+expected to happen once, before the main trial launch.
 
 `BOOSTED_STORY_IDS` activates the boosted slot: listed stories are prioritised
 within the topical slot. Used to promote newly published or seasonal content.
