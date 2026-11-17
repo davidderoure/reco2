@@ -449,14 +449,23 @@ recommend stories scored highly by similar participants
   <h3>Topical</h3>
   <div class="proc">
     <div class="proc-label"><span>topical(participant, excluded)</span></div>
-    <pre>new_for_this_participant ← stories added to catalogue
-                             since this participant's last visit
-                            <span class="cmt">(each participant has their own recency window)</span>
+    <pre><span class="cmt">Three-tier selection — first non-empty tier wins:</span>
 
 <span class="kw">IF</span> BOOSTED_STORY_IDS is configured:
-    prioritise those stories within this slot              <span class="cmt">→ see §8</span>
+    yield those stories (editorial curation)               <span class="cmt">→ see §8</span>
+    <span class="kw">RETURN</span>
 
-yield new stories first, then fall back to any unseen story</pre>
+recent ← stories with created_at &gt; now − TOPICAL_NEW_STORY_DAYS
+         and not in excluded
+<span class="kw">IF</span> recent is non-empty:
+    yield recent in random order                           <span class="cmt">(auto-surfaces new content)</span>
+    <span class="kw">RETURN</span>
+
+<span class="cmt">Fallback — catalogue is frozen or nothing new:</span>
+yield all unseen stories in random order                   <span class="cmt">(behaves like a second wildcard)</span>
+
+<span class="cmt">During a trial with no new stories published, topical always reaches</span>
+<span class="cmt">the fallback — giving uniform cold-start coverage with no recency bias.</span></pre>
   </div>
 
   <h3>Wildcard</h3>
@@ -579,7 +588,12 @@ pool ← participant's scored stories, ranked by connectedness (highest first),
       <tr>
         <td><code class="param-name">BOOSTED_STORY_IDS</code></td>
         <td><span class="param-val">env var</span></td>
-        <td>Optional: <code>story_id, ...</code> — stories prioritised within the topical slot. Used to promote newly published or seasonal content.</td>
+        <td>Optional: <code>story_id, ...</code> — stories promoted into the topical slot as tier 1 (wins over new and random). Used to curate the new-user experience or promote seasonal content.</td>
+      </tr>
+      <tr>
+        <td><code class="param-name">TOPICAL_NEW_STORY_DAYS</code></td>
+        <td><span class="param-val">30</span></td>
+        <td>Stories published within this many days are auto-surfaced as tier 2 of the topical slot. Set to <code>0</code> to disable and always use the random fallback. During a trial with a frozen catalogue this tier never fires.</td>
       </tr>
     </tbody>
   </table>

@@ -56,6 +56,13 @@ the main trial launch.
 `BOOSTED_STORY_IDS` activates the boosted slot: listed stories are prioritised
 within the topical slot. Used to promote newly published or seasonal content.
 
+The topical slot uses three-tier selection: (1) boosted stories when
+`BOOSTED_STORY_IDS` is set, (2) stories published within the last
+`TOPICAL_NEW_STORY_DAYS` (default 30) days, (3) random fallback otherwise.
+During a trial with a frozen catalogue the topical slot behaves like a second
+wildcard, giving uniform cold-start coverage. Set `TOPICAL_NEW_STORY_DAYS=0`
+to disable the auto-new tier and always use the random fallback.
+
 The catalogue (stories and their tags) is re-fetched periodically in the
 background — tags can change during the trial (including user-suggested
 free-text tags), so a long-running process needs to pick that up without a
@@ -78,7 +85,7 @@ there's no real persistence, just enough to exercise the RPCs.
 ## Testing
 
 ```bash
-pytest                              # unit + integration + concurrency + restart tests (101 tests)
+pytest                              # unit + integration + concurrency + restart tests (104 tests)
 python3 -m simulation.simulate      # synthetic population, response-time percentiles, recommender-vs-random effectiveness
 python3 -m simulation.journeys      # per-user round-by-round transcripts → simulation/journeys_output.md
 python3 -m simulation.journeys --noise       # same with 15% engagement interruption noise
@@ -131,10 +138,13 @@ meetings and are implemented with the rationale in code comments
    preservation and generates a fresh set, as it is a deliberate signal that
    the user wants something different. Tag-based avoidance logic (longer-term
    consequence of abort) is pending count/recency parameter decisions.
-9. **"New" stories during the trial**: the `topical` slot prioritizes
-   stories added since *this user's own* last `GetRecommendations` call
-   (`UserModel.last_recommendation_request_at`), not just globally
-   newest — a story can be new for one user and old news for another.
+9. **Topical slot with frozen catalogue**: during a trial where no new stories
+   are published, the `topical` slot falls back to random (uniform draw from
+   all unseen stories), behaving like a second wildcard. This prevents all new
+   users seeing the same 2–3 newest stories and keeps cold-start analysis
+   clean. When a genuinely new story arrives it is auto-surfaced for
+   `TOPICAL_NEW_STORY_DAYS` (default 30) days. `BOOSTED_STORY_IDS` overrides
+   both tiers.
 10. **Content-based diversity**: candidates are scored by tag-affinity match
     and the top `POOL_SIZE` (N=6) are shuffled uniformly before the engine
     picks from them. This prevents a tight positive-feedback loop (high score
