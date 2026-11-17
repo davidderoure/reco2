@@ -88,6 +88,19 @@ PERSONAS: list[Persona] = [
 
 EXPLORATION_PERSONAS: list[Persona] = [
     Persona(
+        name="widening_tester",
+        description=(
+            "Broad high affinity across many themes — almost everything scores 4 or 5. "
+            "Designed to trigger high-engagement widening (mean Q1 ≥ 4 after 5 scored rounds) "
+            "as quickly as possible, then sustain it. Run for 30+ rounds to observe: "
+            "(1) which round widening first activates, (2) whether wildcard slots increase as expected, "
+            "(3) whether widening persists or oscillates. Also run with fixed_score=3 to verify "
+            "widening does NOT activate when scores are moderate."
+        ),
+        theme_weights={tag: 0.85 for tag in THEME_TAGS},
+        selection="random",
+    ),
+    Persona(
         name="exploiter",
         description=(
             "Strong preference for community/arts themes. Always opens the story from the batch "

@@ -17,7 +17,9 @@ import random
 import sys
 import time
 
-from recommender.engine import RecommenderEngine
+from recommender.engine import (
+    HIGH_ENGAGEMENT_MIN_ROUNDS, HIGH_ENGAGEMENT_SCORE_THRESHOLD, RecommenderEngine,
+)
 from .noise import InterruptionType, NO_NOISE, NoiseConfig, high_progress, low_progress, sample_interruption
 from .personas import EXPLORATION_PERSONAS, PERSONAS, ROBUSTNESS_PERSONAS, simulated_connectedness
 from .real_catalogue import FORMAT_TAGS as REAL_FORMAT_TAGS, load_real_catalogue
@@ -26,6 +28,7 @@ from .synthetic_catalogue import generate_catalogue
 
 USERS_PER_PERSONA = 2
 N_ROUNDS = 15
+N_ROUNDS_EXPLORATION = 30
 
 
 def run_journey(
@@ -117,6 +120,10 @@ def run_journey(
             score = None
             # No events fired — app closed before anything was recorded.
 
+        # Detect whether high-engagement widening is active after this round
+        user = engine.population.get(user_id)
+        widening = engine._is_high_engagement(user) if user else False
+
         rounds.append({
             "round": round_idx + 1,
             "recommendations": recs,
@@ -124,6 +131,7 @@ def run_journey(
             "opened_type": opened_type,
             "score": score,
             "interruption": interruption,
+            "widening": widening,
         })
     return rounds
 
@@ -144,9 +152,11 @@ def render_transcript(user_id: str, persona, rounds: list[dict], engine: Recomme
         f"## {user_id} — persona: {persona.name}",
         f"_{persona.description}_",
         "",
-        "| Round | Recommended (story: tags [method]) | Opened | Score |",
-        "|---|---|---|---|",
+        "| Round | Recommended (story: tags [method]) | Opened | Score | Widening |",
+        "|---|---|---|---|---|",
     ]
+    prev_widening = False
+    first_widening_round = None
     for r in rounds:
         rec_cells = []
         for story_id, rec_type in r["recommendations"]:
@@ -156,10 +166,30 @@ def render_transcript(user_id: str, persona, rounds: list[dict], engine: Recomme
             rec_cells.append(f"{marker}{story_id} [{REC_TYPE_NAMES[rec_type]}]: {tags}{marker}")
         score_cell = f"{r['score']}/5" if r["score"] is not None else "—"
         interruption_label = INTERRUPTION_LABELS[r["interruption"]]
+        widening = r.get("widening", False)
+        if widening and not prev_widening:
+            first_widening_round = r["round"]
+        widening_cell = "✓ **ON**" if (widening and not prev_widening) else ("✓" if widening else "")
+        prev_widening = widening
         lines.append(
             f"| {r['round']} | {'<br>'.join(rec_cells)} | "
-            f"{r['opened']} ({REC_TYPE_NAMES[r['opened_type']]}){interruption_label} | {score_cell} |"
+            f"{r['opened']} ({REC_TYPE_NAMES[r['opened_type']]}){interruption_label} | {score_cell} | {widening_cell} |"
         )
+
+    # Summary line
+    scores = [r["score"] for r in rounds if r["score"] is not None]
+    mean_score = f"{sum(scores)/len(scores):.2f}" if scores else "n/a"
+    widening_summary = (
+        f"High-engagement widening **first activated at round {first_widening_round}** "
+        f"(threshold: mean Q1 ≥ {HIGH_ENGAGEMENT_SCORE_THRESHOLD} after ≥ {HIGH_ENGAGEMENT_MIN_ROUNDS} scored rounds). "
+        f"Mean score across all rounds: {mean_score}/5."
+        if first_widening_round
+        else f"High-engagement widening **did not activate** in {len(rounds)} rounds "
+             f"(threshold: mean Q1 ≥ {HIGH_ENGAGEMENT_SCORE_THRESHOLD} after ≥ {HIGH_ENGAGEMENT_MIN_ROUNDS} scored rounds). "
+             f"Mean score across all rounds: {mean_score}/5."
+    )
+    lines.append("")
+    lines.append(f"_{widening_summary}_")
     lines.append("")
     return "\n".join(lines)
 
@@ -196,6 +226,7 @@ def main(
         if with_noise else "No noise (clean baseline)."
     )
 
+    n_rounds = N_ROUNDS
     if robustness:
         personas_to_run = [(p, 1) for p in (REAL_ROBUSTNESS_PERSONAS if real else ROBUSTNESS_PERSONAS)]
         title = "# Robustness journeys — extreme user behaviours"
@@ -206,13 +237,16 @@ def main(
         )
     elif exploration:
         personas_to_run = [(p, USERS_PER_PERSONA) for p in EXPLORATION_PERSONAS]
-        title = "# Exploration journeys — exploiter, explorer, skimmer"
+        n_rounds = N_ROUNDS_EXPLORATION
+        title = "# Exploration journeys — widening_tester, exploiter, explorer, skimmer"
         subtitle = (
-            "Three personas that differ in how they choose which story to open and how often "
-            "they engage. Exploiter always picks their best-match story; explorer always picks "
+            "Four personas that test personalisation, high-engagement widening, and batch-preservation. "
+            "widening_tester has broad high affinity (most stories score 4–5) and is designed to trigger "
+            "high-engagement widening as quickly as possible — observe which round widening first fires "
+            "and whether wildcard slots increase as expected. "
+            "Exploiter always picks their best-match story; explorer always picks "
             "their worst-match; skimmer opens stories but rarely scores them (85% stop-early rate). "
-            "Tests personalisation speed, wildcard/high-engagement widening, and batch-preservation "
-            "behaviour under sparse signal."
+            "A Widening column shows when high-engagement widening activates (mean Q1 ≥ 4 after ≥5 scored rounds)."
         )
     else:
         personas_to_run = [(p, USERS_PER_PERSONA) for p in (REAL_PERSONAS if real else PERSONAS)]
@@ -227,7 +261,7 @@ def main(
         "",
         subtitle,
         "",
-        f"Catalogue: {len(catalogue)} stories. Rounds per user: {N_ROUNDS}. "
+        f"Catalogue: {len(catalogue)} stories. Rounds per user: {n_rounds}. "
         f"**Bold** marks the story the synthetic user opened each round.",
         "",
         f"_{noise_note}_",
@@ -238,7 +272,7 @@ def main(
     for persona, n_users in personas_to_run:
         for i in range(n_users):
             user_id = f"{persona.name}-{i}"
-            rounds = run_journey(engine, user_id, persona, rng, now, N_ROUNDS, noise=noise, format_tags=fmt_tags)
+            rounds = run_journey(engine, user_id, persona, rng, now, n_rounds, noise=noise, format_tags=fmt_tags)
             sections.append(render_transcript(user_id, persona, rounds, engine))
             total += 1
 
@@ -246,7 +280,7 @@ def main(
     with open(output_path, "w") as f:
         f.write(report)
 
-    print(f"Wrote {total} user journeys ({N_ROUNDS} rounds each) to {output_path}")
+    print(f"Wrote {total} user journeys ({n_rounds} rounds each) to {output_path}")
 
 
 if __name__ == "__main__":
